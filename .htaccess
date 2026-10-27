@@ -1,0 +1,12 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Set the base directory
+RewriteBase /task-management-system/
+
+# If file or directory exists, use it directly
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Otherwise forward to index.php
+RewriteRule . index.php [L]

@@ -1,0 +1,132 @@
+/* Main Styles */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.bg-primary{
+    background-color: #192964 !important;
+}
+    .btn-book-now {
+        background: linear-gradient(135deg, #ed1d24 0%, #ff2a2a 100%);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-weight: 600;
+        transition: all 0.3s 
+ease;
+        box-shadow: 0 4px 12px rgba(237, 29, 36, 0.2);
+    }
+    .list-group-item.active {
+    z-index: 2;
+    color: #fff;
+    background-color: #192964;
+    border-color: #192964;
+}
+.bg-red-vk{
+    background-color: #ed1d24 !important;
+}
+/* Mobile only */
+@media (max-width: 767px) {
+    .sidebar-custom {
+        min-height: auto !important;
+    }
+}
+
+
+.sidebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    bottom: 0;
+    width: 250px;
+    z-index: 100;
+    padding: 20px 0;
+    overflow-y: auto;
+}
+
+.main-content {
+    margin-left: 250px;
+    padding: 20px;
+    padding-top: 76px;
+}
+
+
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    transition: transform 0.3s;
+}
+
+/* .card:hover {
+    transform: translateY(-5px);
+} */
+
+
+.table th {
+    border-top: none;
+    font-weight: 600;
+    color: #6c757d;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0,123,255,0.05);
+}
+
+
+.progress {
+    height: 10px;
+    border-radius: 5px;
+}
+
+
+.badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
+
+.form-control:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+
+.btn {
+    border-radius: 5px;
+    padding: 8px 20px;
+    font-weight: 500;
+}
+
+
+.login-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.login-card {
+    width: 100%;
+    max-width: 400px;
+    border-radius: 15px;
+    overflow: hidden;
+}
+
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        position: static;
+        height: auto;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+} 
