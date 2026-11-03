@@ -91,24 +91,43 @@ if($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <input type="password" name="password" class="form-control" required>
                                 </div>
                             </div>
-                            <div class="text-center">
-                            <button type="submit" class="btn btn-book-now">
-                                <i class="fas fa-sign-in-alt"></i> Sign In
-                            </button>
+                            <div class="text-center d-grid">
+                                <button type="submit" class="btn btn-book-now btn-lg">
+                                    <i class="fas fa-sign-in-alt"></i> Sign In
+                                </button>
                             </div>
                         </form>
                         
-                        <!-- <div class="mt-4">
-                            <h6><i class="fas fa-key"></i> Default Credentials:</h6>
+                        <div class="mt-4 p-3 bg-light rounded border">
+                            <h6 class="mb-2 text-dark"><i class="fas fa-key text-primary"></i> <strong>Quick Test Credentials:</strong></h6>
                             <div class="table-responsive">
-                                <table class="table table-sm">
-                                    <tr><th>Username</th><th>Password</th><th>Role</th></tr>
-                                    <tr><td>admin</td><td>admin123</td><td><span class="badge bg-danger">Management</span></td></tr>
-                                    <tr><td>hod1</td><td>hod123</td><td><span class="badge bg-success">HOD</span></td></tr>
-                                    <tr><td>emp1</td><td>emp123</td><td><span class="badge bg-primary">Employee</span></td></tr>
+                                <table class="table table-sm table-bordered align-middle mb-0 bg-white">
+                                    <thead class="table-light">
+                                        <tr><th>Role</th><th>Username</th><th>Password</th><th>Action</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><span class="badge bg-danger">Admin / Management</span></td>
+                                            <td><code>admin</code></td>
+                                            <td><code>admin123</code></td>
+                                            <td><button type="button" class="btn btn-xs btn-outline-danger py-0 px-2" onclick="fillCreds('admin', 'admin123')">Use</button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="badge bg-success">HOD</span></td>
+                                            <td><code>hod1</code></td>
+                                            <td><code>hod123</code></td>
+                                            <td><button type="button" class="btn btn-xs btn-outline-success py-0 px-2" onclick="fillCreds('hod1', 'hod123')">Use</button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="badge bg-primary">User / Employee</span></td>
+                                            <td><code>emp1</code></td>
+                                            <td><code>emp123</code></td>
+                                            <td><button type="button" class="btn btn-xs btn-outline-primary py-0 px-2" onclick="fillCreds('emp1', 'emp123')">Use</button></td>
+                                        </tr>
+                                    </tbody>
                                 </table>
                             </div>
-                        </div> -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -116,5 +135,11 @@ if($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function fillCreds(username, password) {
+            document.querySelector('input[name="username"]').value = username;
+            document.querySelector('input[name="password"]').value = password;
+        }
+    </script>
 </body>
 </html>

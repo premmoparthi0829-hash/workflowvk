@@ -6,13 +6,19 @@ ini_set('display_errors', 1);
 
 // Application Configuration
 define('APP_NAME', 'Workflow :: VK Logistics Hub');
-define('APP_URL', 'http://localhost:8080/taskmanagementsystem');
 
-// Database Configuration - USE CORRECT DATABASE NAME
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'u938436441_wftmvkhub'); // Changed to your actual database name
-define('DB_USER', 'u938436441_wfkmd');
-define('DB_PASS', 'V!7wJ!OPi');
+if (!defined('APP_URL')) {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8085';
+    define('APP_URL', $protocol . $host);
+}
+
+// Database Configuration
+define('DB_HOST', '127.0.0.1');
+define('DB_PORT', '8889');
+define('DB_NAME', 'taskmanagementsystem');
+define('DB_USER', 'root');
+define('DB_PASS', 'root');
 
 // Session management
 if(session_status() === PHP_SESSION_NONE) {
@@ -37,7 +43,12 @@ function getDB() {
     static $db = null;
     if($db === null) {
         try {
-            $db = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME, DB_USER, DB_PASS);
+            $dsn = "mysql:host=" . DB_HOST;
+            if (defined('DB_PORT') && DB_PORT) {
+                $dsn .= ";port=" . DB_PORT;
+            }
+            $dsn .= ";dbname=" . DB_NAME . ";charset=utf8mb4";
+            $db = new PDO($dsn, DB_USER, DB_PASS);
             $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         } catch(PDOException $e) {
@@ -46,13 +57,7 @@ function getDB() {
                 <h3>Database Connection Error</h3>
                 <p><strong>Error:</strong> " . $e->getMessage() . "</p>
                 <p><strong>Database:</strong> " . DB_NAME . "</p>
-                <p>Please check:</p>
-                <ol>
-                    <li>MySQL is running in XAMPP</li>
-                    <li>Database 'taskmanagementsystem' exists in phpMyAdmin</li>
-                    <li>Username and password are correct</li>
-                </ol>
-                <p><a href='../install/setup.php'>Click here to run setup</a></p>
+                <p>Please check MySQL connection settings.</p>
             </div>");
         }
     }
