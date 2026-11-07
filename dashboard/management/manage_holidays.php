@@ -12,13 +12,11 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['role']) || $_SESSION['role
 $db = new Database();
 $conn = $db->getConnection();
 
-// Get current year
 $current_year = (int)date('Y');
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add_holiday'])) {
-        // Add new holiday
         $name = trim($_POST['name']);
         $date = $_POST['date'];
         $type = $_POST['type'];
@@ -40,7 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } 
     elseif (isset($_POST['update_holiday'])) {
-        // Update holiday
         $id = $_POST['holiday_id'];
         $name = trim($_POST['name']);
         $date = $_POST['date'];
@@ -64,9 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } 
     elseif (isset($_POST['delete_holiday'])) {
-        // Delete holiday
         $id = $_POST['holiday_id'];
-        
         $query = "DELETE FROM holidays WHERE id = :id";
         $stmt = $conn->prepare($query);
         $stmt->bindParam(':id', $id);
@@ -78,12 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // Redirect to avoid form resubmission
     header('Location: manage_holidays.php');
     exit();
 }
 
-// Get all holidays
+// 1. Fetch All Holidays
 $query = "SELECT h.*, u.full_name as created_by_name 
           FROM holidays h 
           LEFT JOIN users u ON h.created_by = u.id 
@@ -92,7 +86,32 @@ $stmt = $conn->prepare($query);
 $stmt->execute();
 $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Map holidays by date (YYYY-MM-DD) and calculate metrics
+// 2. Fetch Tasks with Deadlines
+$task_query = "SELECT t.id, t.title, t.description, t.priority, t.status, t.deadline, 
+                      u.full_name as assignee_name, d.name as department_name
+               FROM tasks t
+               LEFT JOIN task_assignments ta ON t.id = ta.task_id AND ta.current_assignee = 1
+               LEFT JOIN users u ON ta.assigned_to = u.id
+               LEFT JOIN departments d ON u.department_id = d.id
+               WHERE t.deadline IS NOT NULL
+               ORDER BY t.deadline ASC";
+$task_stmt = $conn->prepare($task_query);
+$task_stmt->execute();
+$tasks = $task_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// 3. Fetch Approved Employee Leaves
+$leave_query = "SELECT el.id, el.user_id, el.leave_type, el.start_date, el.end_date, el.total_days, el.reason,
+                       u.full_name as employee_name, d.name as department_name
+                FROM employee_leaves el
+                JOIN users u ON el.user_id = u.id
+                LEFT JOIN departments d ON u.department_id = d.id
+                WHERE el.status = 'approved'
+                ORDER BY el.start_date ASC";
+$leave_stmt = $conn->prepare($leave_query);
+$leave_stmt->execute();
+$leaves = $leave_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Organize metrics
 $holidays_by_date = [];
 $type_counts = ['all' => count($holidays), 'national' => 0, 'regional' => 0, 'company' => 0];
 $today_date = date('Y-m-d');
@@ -105,7 +124,6 @@ foreach ($holidays as $holiday) {
     }
     $holidays_by_date[$date_key][] = $holiday;
     
-    // Type normalization
     $t = strtolower($holiday['type'] ?? 'company');
     if ($t === 'gazetted') $t = 'regional';
     if (isset($type_counts[$t])) {
@@ -114,7 +132,6 @@ foreach ($holidays as $holiday) {
         $type_counts['company']++;
     }
     
-    // Find next upcoming holiday
     if (!$next_holiday && $holiday['date'] >= $today_date) {
         $next_holiday = $holiday;
     }
@@ -168,7 +185,7 @@ foreach ($holidays as $holiday) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Holidays & Calendar - <?php echo defined('APP_NAME') ? APP_NAME : 'Workflow'; ?></title>
+    <title>Operations Calendar & Holidays - <?php echo defined('APP_NAME') ? APP_NAME : 'Workflow'; ?></title>
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -251,7 +268,7 @@ foreach ($holidays as $holiday) {
             box-shadow: 0 4px 12px rgba(79, 70, 229, 0.32);
         }
 
-        /* Next Upcoming Holiday Tagline Banner */
+        /* Next Holiday Tagline Banner */
         .next-holiday-tagline {
             background: linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%);
             border: 1px solid #e0e7ff;
@@ -346,7 +363,6 @@ foreach ($holidays as $holiday) {
         .holiday-list-item.regional { border-left-color: #f59e0b; }
         .holiday-list-item.company { border-left-color: #10b981; }
 
-        /* Filter buttons */
         .filter-btn-pill {
             font-size: 0.78rem;
             font-weight: 700;
@@ -377,6 +393,41 @@ foreach ($holidays as $holiday) {
             padding: 24px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
             margin-bottom: 24px;
+        }
+
+        /* Layer Filter Checkboxes */
+        .layer-toggle-chip {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.18s ease;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            color: #475569;
+        }
+        .layer-toggle-chip.active {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .layer-toggle-chip.layer-holidays.active {
+            background: #fee2e2;
+            color: #991b1b;
+            border-color: #fca5a5;
+        }
+        .layer-toggle-chip.layer-tasks.active {
+            background: #dbeafe;
+            color: #1e40af;
+            border-color: #93c5fd;
+        }
+        .layer-toggle-chip.layer-leaves.active {
+            background: #d1fae5;
+            color: #065f46;
+            border-color: #6ee7b7;
         }
 
         /* Calendar Controls */
@@ -458,7 +509,6 @@ foreach ($holidays as $holiday) {
         .month-card-wrapper:hover {
             box-shadow: 0 10px 26px rgba(79, 70, 229, 0.08);
         }
-        /* Top-right corner lavender gradient aura */
         .month-card-wrapper::before {
             content: '';
             position: absolute;
@@ -507,7 +557,7 @@ foreach ($holidays as $holiday) {
 
         /* Day tiles */
         .cal-tile {
-            height: 38px;
+            height: 40px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -536,7 +586,7 @@ foreach ($holidays as $holiday) {
             border: 1px solid rgba(226, 232, 240, 0.7);
         }
 
-        /* Today active pill (like day 11 in screenshot) */
+        /* Today active pill */
         .cal-tile.is-today-active {
             background: #4f46e5 !important;
             color: #ffffff !important;
@@ -549,32 +599,51 @@ foreach ($holidays as $holiday) {
             background: #fee2e2 !important;
             color: #b91c1c !important;
             border: 1px solid #fca5a5;
-            font-weight: 800;
         }
         .cal-tile.holiday-regional {
             background: #fef3c7 !important;
             color: #b45309 !important;
             border: 1px solid #fde68a;
-            font-weight: 800;
         }
         .cal-tile.holiday-company {
             background: #d1fae5 !important;
             color: #047857 !important;
             border: 1px solid #a7f3d0;
-            font-weight: 800;
         }
 
-        /* Indicator dot */
+        /* Task deadline styling */
+        .cal-tile.has-task-deadline {
+            border: 2px solid #3b82f6 !important;
+        }
+        .cal-tile.task-critical {
+            border-color: #ef4444 !important;
+        }
+        .cal-tile.task-high {
+            border-color: #f97316 !important;
+        }
+
+        /* Multiple indicator dots container */
+        .cal-dots-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            margin-top: 1px;
+            height: 5px;
+        }
         .cal-dot {
             width: 4px;
             height: 4px;
             border-radius: 50%;
-            margin-top: 1px;
         }
         .cal-dot.national { background: #dc2626; }
         .cal-dot.regional { background: #d97706; }
         .cal-dot.company { background: #059669; }
         .cal-dot.today { background: #ffffff; }
+        .cal-dot.task { background: #2563eb; }
+        .cal-dot.task-critical { background: #dc2626; }
+        .cal-dot.task-high { background: #ea580c; }
+        .cal-dot.leave { background: #10b981; }
 
         /* Legend Bar */
         .cal-legend-bar {
@@ -597,7 +666,7 @@ foreach ($holidays as $holiday) {
                         <i class="far fa-calendar-alt"></i>
                     </div>
                     <div>
-                        <h2 class="cal-main-title mb-0">Calendar & Holiday Schedule</h2>
+                        <h2 class="cal-main-title mb-0">Unified Operations Calendar</h2>
                         <div class="cal-sub-title">
                             Plan, schedule and manage your events 
                             <?php if ($next_holiday_info): ?>
@@ -622,9 +691,15 @@ foreach ($holidays as $holiday) {
 
                 <!-- Right Action Buttons -->
                 <div class="d-flex align-items-center gap-2">
+                    <a href="export_calendar.php" class="btn btn-outline-success btn-sm rounded-pill px-3 fw-bold shadow-sm" title="Download .ics for Google/Outlook Calendar">
+                        <i class="fas fa-file-export me-1"></i> Export .ICS
+                    </a>
                     <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold shadow-sm" onclick="openAddHolidayModal()">
                         <i class="fas fa-plus me-1"></i> Add Holiday
                     </button>
+                    <a href="tasks.php" class="btn btn-outline-primary btn-sm rounded-pill px-3 fw-bold" title="View Tasks Kanban & Table">
+                        <i class="fas fa-tasks me-1"></i> Tasks
+                    </a>
                     <a href="index.php" class="btn btn-outline-secondary btn-sm rounded-pill px-3" title="Back to Dashboard">
                         <i class="fas fa-arrow-left me-1"></i> Dashboard
                     </a>
@@ -778,7 +853,21 @@ foreach ($holidays as $holiday) {
                         </div>
                         <div>
                             <h3 class="cal-main-title mb-0">Calendar View</h3>
-                            <div class="cal-sub-title">Plan, schedule and manage your events</div>
+                            <div class="cal-sub-title">Plan, schedule and manage events, tasks & team leaves</div>
+                        </div>
+                    </div>
+
+                    <!-- Layer Filter Toggles -->
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="small text-muted fw-bold me-1">Layers:</span>
+                        <div class="layer-toggle-chip layer-holidays active" onclick="toggleLayer('holidays', this)">
+                            <i class="fas fa-check-circle"></i> Holidays (<?php echo count($holidays); ?>)
+                        </div>
+                        <div class="layer-toggle-chip layer-tasks active" onclick="toggleLayer('tasks', this)">
+                            <i class="fas fa-check-circle"></i> Task Deadlines (<?php echo count($tasks); ?>)
+                        </div>
+                        <div class="layer-toggle-chip layer-leaves active" onclick="toggleLayer('leaves', this)">
+                            <i class="fas fa-check-circle"></i> Leaves (<?php echo count($leaves); ?>)
                         </div>
                     </div>
 
@@ -794,7 +883,7 @@ foreach ($holidays as $holiday) {
                                 <span id="rangeDisplayLabel">Nov 2026 – Apr 2027</span>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 py-2" id="rangeDropdownMenu">
-                                <!-- Populated dynamically by JS -->
+                                <!-- Options -->
                             </ul>
                         </div>
 
@@ -832,10 +921,43 @@ foreach ($holidays as $holiday) {
                             <span class="d-inline-block rounded-2" style="width: 14px; height: 14px; background: #d1fae5; border: 1px solid #34d399;"></span>
                             Company Holiday
                         </span>
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="d-inline-block rounded-circle" style="width: 8px; height: 8px; background: #2563eb;"></span>
+                            Task Deadline
+                        </span>
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="d-inline-block rounded-circle" style="width: 8px; height: 8px; background: #10b981;"></span>
+                            Approved Leave
+                        </span>
                     </div>
                     <div class="small text-muted fw-semibold">
-                        <i class="fas fa-mouse-pointer text-primary me-1"></i> Click any date to add a holiday &middot; Click holiday to edit
+                        <i class="fas fa-mouse-pointer text-primary me-1"></i> Click any day to see details & schedule
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day Events Detail Modal -->
+    <div class="modal fade" id="dayDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold" id="dayDetailModalTitle">
+                        <i class="far fa-calendar text-primary me-2"></i> Date Details
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-3">
+                    <div id="dayDetailModalContent">
+                        <!-- Events populated by JS -->
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-primary btn-sm rounded-pill" id="btnAddHolidayFromDay">
+                        <i class="fas fa-plus me-1"></i> Add Holiday Here
+                    </button>
+                    <button type="button" class="btn btn-light btn-sm rounded-pill px-3" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -958,13 +1080,44 @@ foreach ($holidays as $holiday) {
     <script>
         // Server Data
         const allHolidays = <?php echo json_encode($holidays); ?>;
+        const allTasks = <?php echo json_encode($tasks); ?>;
+        const allLeaves = <?php echo json_encode($leaves); ?>;
+
+        // Fast lookup maps by date YYYY-MM-DD
         const holidaysByDate = {};
         allHolidays.forEach(h => {
-            if (!holidaysByDate[h.date]) {
-                holidaysByDate[h.date] = [];
-            }
+            if (!holidaysByDate[h.date]) holidaysByDate[h.date] = [];
             holidaysByDate[h.date].push(h);
         });
+
+        const tasksByDate = {};
+        allTasks.forEach(t => {
+            if (t.deadline) {
+                if (!tasksByDate[t.deadline]) tasksByDate[t.deadline] = [];
+                tasksByDate[t.deadline].push(t);
+            }
+        });
+
+        const leavesByDate = {};
+        allLeaves.forEach(l => {
+            if (l.start_date && l.end_date) {
+                let cur = new Date(l.start_date);
+                const end = new Date(l.end_date);
+                while (cur <= end) {
+                    const ds = formatDate(cur.getFullYear(), cur.getMonth(), cur.getDate());
+                    if (!leavesByDate[ds]) leavesByDate[ds] = [];
+                    leavesByDate[ds].push(l);
+                    cur.setDate(cur.getDate() + 1);
+                }
+            }
+        });
+
+        // Layer Filter States
+        const activeLayers = {
+            holidays: true,
+            tasks: true,
+            leaves: true
+        };
 
         const monthNames = [
             'January', 'February', 'March', 'April', 'May', 'June',
@@ -975,24 +1128,18 @@ foreach ($holidays as $holiday) {
             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
         ];
 
-        // Real Today
         const realToday = new Date();
         const realTodayStr = formatDate(realToday.getFullYear(), realToday.getMonth(), realToday.getDate());
 
-        // Six-Month Window Starting Date
         let startWindowYear = realToday.getFullYear();
         let startWindowMonth = realToday.getMonth();
 
         $(document).ready(function() {
-            // Flatpickr initialization
             flatpickr("#date", { dateFormat: "Y-m-d" });
             flatpickr("#edit_date", { dateFormat: "Y-m-d" });
             $('#date').val(realTodayStr);
 
-            // Populate range dropdown
             buildRangeDropdown();
-
-            // Initial Render of Calendar
             renderSixMonths();
         });
 
@@ -1002,7 +1149,6 @@ foreach ($holidays as $holiday) {
             return `${y}-${mm}-${dd}`;
         }
 
-        // View Mode: 'both' (default), 'list', 'calendar'
         function setViewMode(mode) {
             $('.cal-toggle-pill').removeClass('active');
             if (mode === 'both') {
@@ -1020,7 +1166,18 @@ foreach ($holidays as $holiday) {
             }
         }
 
-        // Navigation by step (+6 or -6 months)
+        function toggleLayer(layerKey, btn) {
+            activeLayers[layerKey] = !activeLayers[layerKey];
+            if (activeLayers[layerKey]) {
+                $(btn).addClass('active');
+                $(btn).find('i').removeClass('fa-circle').addClass('fa-check-circle');
+            } else {
+                $(btn).removeClass('active');
+                $(btn).find('i').removeClass('fa-check-circle').addClass('fa-circle text-muted');
+            }
+            renderSixMonths();
+        }
+
         function navStep(monthsDelta) {
             let totalMonths = startWindowYear * 12 + startWindowMonth + monthsDelta;
             startWindowYear = Math.floor(totalMonths / 12);
@@ -1066,7 +1223,6 @@ foreach ($holidays as $holiday) {
             });
         }
 
-        // Render the 6 Month Cards Grid
         function renderSixMonths() {
             const container = document.getElementById('sixMonthGrid');
             if (!container) return;
@@ -1087,7 +1243,6 @@ foreach ($holidays as $holiday) {
                 const card = document.createElement('div');
                 card.className = 'month-card-wrapper';
 
-                // Month Card Header (Icon + Month Year)
                 const header = document.createElement('div');
                 header.className = 'month-card-header';
                 header.innerHTML = `
@@ -1096,7 +1251,6 @@ foreach ($holidays as $holiday) {
                 `;
                 card.appendChild(header);
 
-                // Weekday Row (Sun, Mon, Tue, Wed, Thu, Fri, Sat)
                 const weekdayRow = document.createElement('div');
                 weekdayRow.className = 'cal-7col-grid mb-2';
                 ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(wName => {
@@ -1107,73 +1261,97 @@ foreach ($holidays as $holiday) {
                 });
                 card.appendChild(weekdayRow);
 
-                // Days Grid
                 const daysGrid = document.createElement('div');
                 daysGrid.className = 'cal-7col-grid';
 
-                const firstDayOfWeek = new Date(curY, curM, 1).getDay(); // 0 = Sun ... 6 = Sat
+                const firstDayOfWeek = new Date(curY, curM, 1).getDay();
                 const daysInMonth = new Date(curY, curM + 1, 0).getDate();
 
-                // 1. Leading empty cells
                 for (let e = 0; e < firstDayOfWeek; e++) {
                     const emptyCell = document.createElement('div');
                     emptyCell.className = 'cal-tile empty';
                     daysGrid.appendChild(emptyCell);
                 }
 
-                // 2. Days of this month
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = formatDate(curY, curM, d);
-                    const dayOfWeek = new Date(curY, curM, d).getDay();
-                    const isSunday = (dayOfWeek === 0);
-                    const isSaturday = (dayOfWeek === 6);
                     const isToday = (dateStr === realTodayStr);
 
                     const tile = document.createElement('div');
-                    let tileClasses = ['cal-tile'];
+                    let tileClasses = ['cal-tile', 'col-weekday'];
 
-                    // Base tile styling (uniform for all days including Sat & Sun)
-                    tileClasses.push('col-weekday');
+                    const hList = activeLayers.holidays ? (holidaysByDate[dateStr] || []) : [];
+                    const tList = activeLayers.tasks ? (tasksByDate[dateStr] || []) : [];
+                    const lList = activeLayers.leaves ? (leavesByDate[dateStr] || []) : [];
 
-                    // Check for holidays
-                    const hList = holidaysByDate[dateStr] || [];
-                    let holidayType = null;
+                    let tooltipItems = [];
+
+                    // Holidays
                     if (hList.length > 0) {
                         let t = (hList[0].type || 'company').toLowerCase();
                         if (t === 'gazetted') t = 'regional';
-                        holidayType = t;
                         tileClasses.push(`holiday-${t}`);
-
-                        const hNames = hList.map(h => escapeHtml(h.name)).join(', ');
-                        tile.setAttribute('data-bs-toggle', 'tooltip');
-                        tile.setAttribute('title', `${hNames} (${t.toUpperCase()})`);
+                        hList.forEach(h => tooltipItems.push(`🎉 Holiday: ${h.name}`));
                     }
 
-                    // Active Today styling
+                    // Tasks
+                    if (tList.length > 0) {
+                        tileClasses.push('has-task-deadline');
+                        const topPriority = tList[0].priority.toLowerCase();
+                        if (topPriority === 'critical') tileClasses.push('task-critical');
+                        else if (topPriority === 'high') tileClasses.push('task-high');
+                        tList.forEach(tk => tooltipItems.push(`📌 Task: ${tk.title} (${tk.priority.toUpperCase()})`));
+                    }
+
+                    // Leaves
+                    if (lList.length > 0) {
+                        lList.forEach(lv => tooltipItems.push(`🏖️ Out of Office: ${lv.employee_name} (${lv.leave_type})`));
+                    }
+
                     if (isToday) {
                         tileClasses.push('is-today-active');
+                    }
+
+                    if (tooltipItems.length > 0) {
+                        tile.setAttribute('data-bs-toggle', 'tooltip');
+                        tile.setAttribute('title', tooltipItems.join(' | '));
                     }
 
                     tile.className = tileClasses.join(' ');
                     tile.innerHTML = `<span>${d}</span>`;
 
-                    // Dot indicator
+                    // Dot container
+                    const dotsContainer = document.createElement('div');
+                    dotsContainer.className = 'cal-dots-container';
+
                     if (hList.length > 0) {
+                        let t = (hList[0].type || 'company').toLowerCase();
+                        if (t === 'gazetted') t = 'regional';
                         const dot = document.createElement('div');
-                        dot.className = `cal-dot ${holidayType}`;
-                        tile.appendChild(dot);
-                    } else if (isToday) {
+                        dot.className = `cal-dot ${t}`;
+                        dotsContainer.appendChild(dot);
+                    }
+                    if (tList.length > 0) {
+                        const topPriority = tList[0].priority.toLowerCase();
+                        const dot = document.createElement('div');
+                        dot.className = `cal-dot task ${topPriority === 'critical' ? 'task-critical' : (topPriority === 'high' ? 'task-high' : '')}`;
+                        dotsContainer.appendChild(dot);
+                    }
+                    if (lList.length > 0) {
+                        const dot = document.createElement('div');
+                        dot.className = 'cal-dot leave';
+                        dotsContainer.appendChild(dot);
+                    }
+                    if (isToday && hList.length === 0 && tList.length === 0 && lList.length === 0) {
                         const dot = document.createElement('div');
                         dot.className = 'cal-dot today';
-                        tile.appendChild(dot);
+                        dotsContainer.appendChild(dot);
                     }
 
+                    tile.appendChild(dotsContainer);
+
                     tile.onclick = function() {
-                        if (hList.length > 0) {
-                            editHoliday(hList[0]);
-                        } else {
-                            openAddHolidayModal(dateStr);
-                        }
+                        openDayDetailsModal(dateStr, hList, tList, lList);
                     };
 
                     daysGrid.appendChild(tile);
@@ -1185,6 +1363,86 @@ foreach ($holidays as $holiday) {
             }
 
             $('[data-bs-toggle="tooltip"]').tooltip();
+        }
+
+        // Open Day Details Modal
+        function openDayDetailsModal(dateStr, hList, tList, lList) {
+            const d = new Date(dateStr + 'T00:00:00');
+            const formatted = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            $('#dayDetailModalTitle').html(`<i class="far fa-calendar-alt text-primary me-2"></i> ${formatted}`);
+
+            let html = '';
+            let totalEvents = hList.length + tList.length + lList.length;
+
+            if (totalEvents === 0) {
+                html = `<div class="text-center py-4 text-muted">
+                    <i class="far fa-calendar-check fs-2 text-primary opacity-50 mb-2"></i>
+                    <p class="mb-0 fw-semibold">No scheduled events or deadlines on this date.</p>
+                </div>`;
+            } else {
+                html += '<div class="d-flex flex-column gap-3">';
+                // Holidays
+                hList.forEach(h => {
+                    let htype = (h.type || 'company').toLowerCase();
+                    if (htype === 'gazetted') htype = 'regional';
+                    html += `
+                    <div class="p-3 rounded-3 border" style="background: #fef2f2; border-color: #fca5a5 !important;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="badge bg-danger rounded-pill px-2 py-1 small mb-1">HOLIDAY</span>
+                                <h6 class="fw-bold mb-1 text-danger">${escapeHtml(h.name)}</h6>
+                                ${h.description ? `<p class="small text-muted mb-0">${escapeHtml(h.description)}</p>` : ''}
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" onclick="editHoliday(${escapeHtml(JSON.stringify(h))})">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                        </div>
+                    </div>`;
+                });
+
+                // Tasks
+                tList.forEach(tk => {
+                    let pBadge = 'bg-primary';
+                    if (tk.priority === 'critical') pBadge = 'bg-danger';
+                    else if (tk.priority === 'high') pBadge = 'bg-warning text-dark';
+                    else if (tk.priority === 'low') pBadge = 'bg-secondary';
+
+                    html += `
+                    <div class="p-3 rounded-3 border" style="background: #eff6ff; border-color: #bfdbfe !important;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="badge ${pBadge} rounded-pill px-2 py-1 small mb-1">TASK DEADLINE &middot; ${tk.priority.toUpperCase()}</span>
+                                <h6 class="fw-bold mb-1 text-dark">${escapeHtml(tk.title)}</h6>
+                                <div class="small text-muted">Assignee: <strong>${escapeHtml(tk.assignee_name || 'Unassigned')}</strong> &middot; Status: <span class="badge bg-light text-dark">${tk.status}</span></div>
+                            </div>
+                            <a href="tasks.php" class="btn btn-sm btn-outline-primary">
+                                View <i class="fas fa-arrow-right ms-1"></i>
+                            </a>
+                        </div>
+                    </div>`;
+                });
+
+                // Leaves
+                lList.forEach(lv => {
+                    html += `
+                    <div class="p-3 rounded-3 border" style="background: #ecfdf5; border-color: #a7f3d0 !important;">
+                        <span class="badge bg-success rounded-pill px-2 py-1 small mb-1">OUT OF OFFICE</span>
+                        <h6 class="fw-bold mb-1 text-success">${escapeHtml(lv.employee_name)}</h6>
+                        <div class="small text-muted">Leave Type: <strong>${escapeHtml(lv.leave_type.toUpperCase())}</strong> &middot; ${lv.start_date} to ${lv.end_date} (${lv.total_days} days)</div>
+                        ${lv.reason ? `<div class="small text-muted mt-1 fst-italic">"${escapeHtml(lv.reason)}"</div>` : ''}
+                    </div>`;
+                });
+
+                html += '</div>';
+            }
+
+            $('#dayDetailModalContent').html(html);
+            $('#btnAddHolidayFromDay').off('click').on('click', function() {
+                $('#dayDetailModal').modal('hide');
+                openAddHolidayModal(dateStr);
+            });
+
+            $('#dayDetailModal').modal('show');
         }
 
         // List View Filtering
@@ -1207,7 +1465,6 @@ foreach ($holidays as $holiday) {
             }
         }
 
-        // Modal Action Helpers
         function openAddHolidayModal(prefillDate) {
             if (prefillDate) {
                 $('#date').val(prefillDate);
@@ -1221,6 +1478,7 @@ foreach ($holidays as $holiday) {
         }
 
         function editHoliday(holiday) {
+            $('#dayDetailModal').modal('hide');
             $('#edit_holiday_id').val(holiday.id);
             $('#edit_name').val(holiday.name);
             $('#edit_date').val(holiday.date);
@@ -1237,7 +1495,7 @@ foreach ($holidays as $holiday) {
 
         function escapeHtml(str) {
             if (!str) return '';
-            return str.replace(/[&<>"']/g, function(m) {
+            return String(str).replace(/[&<>"']/g, function(m) {
                 return {
                     '&': '&amp;',
                     '<': '&lt;',
@@ -1248,7 +1506,6 @@ foreach ($holidays as $holiday) {
             });
         }
 
-        // Modal auto-focus
         $('#addHolidayModal').on('shown.bs.modal', function () {
             $('#name').focus();
         });

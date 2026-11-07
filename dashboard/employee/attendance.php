@@ -39,6 +39,79 @@ $punches_stmt->bindParam(':user_id', $user_id);
 $punches_stmt->bindParam(':date', $today);
 $punches_stmt->execute();
 $today_punches = $punches_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Calculate today's net worked time from punches. An open work or break interval
+// is counted up to now so the total remains useful before clock-out.
+$now = time();
+$work_seconds = 0;
+$break_seconds = 0;
+$permission_seconds = 0;
+$clock_in_at = null;
+$lunch_start_at = null;
+$tea_start_at = null;
+$permission_start_at = null;
+
+foreach ($today_punches as $punch) {
+    $punch_timestamp = strtotime($punch['punch_time']);
+    switch ($punch['punch_type']) {
+        case 'clock_in':
+            $clock_in_at = $punch_timestamp;
+            break;
+        case 'clock_out':
+            if ($clock_in_at !== null) {
+                $work_seconds += max(0, $punch_timestamp - $clock_in_at);
+                $clock_in_at = null;
+            }
+            break;
+        case 'lunch_start':
+            $lunch_start_at = $punch_timestamp;
+            break;
+        case 'lunch_end':
+            if ($lunch_start_at !== null) {
+                $break_seconds += max(0, $punch_timestamp - $lunch_start_at);
+                $lunch_start_at = null;
+            }
+            break;
+        case 'tea_break_start':
+            $tea_start_at = $punch_timestamp;
+            break;
+        case 'tea_break_end':
+            if ($tea_start_at !== null) {
+                $break_seconds += max(0, $punch_timestamp - $tea_start_at);
+                $tea_start_at = null;
+            }
+            break;
+        case 'permission_start':
+            $permission_start_at = $punch_timestamp;
+            break;
+        case 'permission_end':
+            if ($permission_start_at !== null) {
+                $permission_seconds += max(0, $punch_timestamp - $permission_start_at);
+                $permission_start_at = null;
+            }
+            break;
+    }
+}
+
+if ($clock_in_at !== null) {
+    $work_seconds += max(0, $now - $clock_in_at);
+}
+if ($lunch_start_at !== null) {
+    $break_seconds += max(0, $now - $lunch_start_at);
+}
+if ($tea_start_at !== null) {
+    $break_seconds += max(0, $now - $tea_start_at);
+}
+if ($permission_start_at !== null) {
+    $permission_seconds += max(0, $now - $permission_start_at);
+}
+
+$net_work_seconds = max(0, $work_seconds - $break_seconds - $permission_seconds);
+$worked_hours_display = sprintf('%dh %02dm', intdiv($net_work_seconds, 3600), intdiv($net_work_seconds % 3600, 60));
+$work_timer_running = $clock_in_at !== null
+    && $lunch_start_at === null
+    && $tea_start_at === null
+    && $permission_start_at === null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,6 +226,22 @@ $today_punches = $punches_stmt->fetchAll(PDO::FETCH_ASSOC);
                                             echo "<span class='badge bg-warning text-dark'>Not Clocked In</span>";
                                         }
                                         ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mb-4">
+                            <div class="col-md-12">
+                                <div class="card border-primary">
+                                    <div class="card-body d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h5 class="card-title mb-1"><i class="fas fa-hourglass-half text-primary"></i> Total Hours Today</h5>
+                                            <small class="text-muted">Breaks and permission time excluded</small>
+                                        </div>
+                                        <strong id="worked-hours" class="h2 text-primary mb-0"
+                                            data-seconds="<?php echo (int) $net_work_seconds; ?>"
+                                            data-running="<?php echo $work_timer_running ? '1' : '0'; ?>"><?php echo htmlspecialchars($worked_hours_display); ?></strong>
                                     </div>
                                 </div>
                             </div>
@@ -357,6 +446,18 @@ $today_punches = $punches_stmt->fetchAll(PDO::FETCH_ASSOC);
         }
         setInterval(updateTime, 1000);
         updateTime();
+
+        const workedHours = document.getElementById('worked-hours');
+        let workedSeconds = Number(workedHours.dataset.seconds || 0);
+        const workTimerRunning = workedHours.dataset.running === '1';
+        setInterval(function() {
+            if (workTimerRunning) {
+                workedSeconds++;
+                const hours = Math.floor(workedSeconds / 3600);
+                const minutes = Math.floor((workedSeconds % 3600) / 60);
+                workedHours.textContent = hours + 'h ' + String(minutes).padStart(2, '0') + 'm';
+            }
+        }, 1000);
 
         // Mark attendance
         function markAttendance(punchType, notes = '') {

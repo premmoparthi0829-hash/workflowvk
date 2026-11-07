@@ -122,9 +122,9 @@ CREATE TABLE IF NOT EXISTS `attendance_summary` (
 CREATE TABLE IF NOT EXISTS `employee_leave_balance` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `user_id` INT NOT NULL UNIQUE,
-  `casual_leave` INT DEFAULT 12,
-  `sick_leave` INT DEFAULT 12,
-  `earned_leave` INT DEFAULT 15,
+  `casual_leave` DECIMAL(6,1) DEFAULT 12.0,
+  `sick_leave` DECIMAL(6,1) DEFAULT 12.0,
+  `earned_leave` DECIMAL(6,1) DEFAULT 15.0,
   `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS `employee_leaves` (
   `leave_type` VARCHAR(50) NOT NULL,
   `start_date` DATE NOT NULL,
   `end_date` DATE NOT NULL,
-  `total_days` INT NOT NULL,
+  `total_days` DECIMAL(6,1) NOT NULL,
   `reason` TEXT NOT NULL,
   `status` ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
   `approved_by` INT NULL,

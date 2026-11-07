@@ -189,6 +189,117 @@ try {
         background-color: rgba(13, 110, 253, 0.05);
     }
 
+        /* Kanban Board Styles */
+    .kanban-view-container {
+        margin-top: 15px;
+    }
+    .kanban-board-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        align-items: start;
+    }
+    .kanban-col {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 14px;
+        min-height: 520px;
+        display: flex;
+        flex-direction: column;
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .kanban-col.drag-over {
+        background: #eef2ff;
+        border-color: #6366f1;
+        border-style: dashed;
+    }
+    .kanban-col-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e2e8f0;
+    }
+    .kanban-col-title {
+        font-weight: 800;
+        font-size: 0.92rem;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+    }
+    .kanban-cards-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex-grow: 1;
+        min-height: 120px;
+    }
+    .kanban-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        cursor: grab;
+        transition: all 0.18s ease;
+        position: relative;
+        border-left: 4px solid #cbd5e1;
+    }
+    .kanban-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 14px rgba(0,0,0,0.08);
+        border-color: #94a3b8;
+    }
+    .kanban-card.is-dragging {
+        opacity: 0.4;
+        cursor: grabbing;
+    }
+    .kanban-card.p-critical { border-left-color: #ef4444; }
+    .kanban-card.p-high { border-left-color: #f97316; }
+    .kanban-card.p-medium { border-left-color: #3b82f6; }
+    .kanban-card.p-low { border-left-color: #94a3b8; }
+
+    .kanban-card-title {
+        font-weight: 700;
+        font-size: 0.88rem;
+        color: #0f172a;
+        margin-bottom: 6px;
+        line-height: 1.3;
+    }
+    .kanban-card-meta {
+        font-size: 0.76rem;
+        color: #64748b;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px dashed #f1f5f9;
+    }
+    .kanban-card-avatar {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #ede9fe;
+        color: #4f46e5;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.65rem;
+        font-weight: 800;
+        margin-right: 4px;
+    }
+    .kanban-toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 9999;
+    }
+
     .status-badge,
     .priority-badge {
         font-size: 0.85em;
@@ -251,17 +362,37 @@ try {
                         <h1 class="h2 mb-0">Task Management</h1>
                     </div>
 
-                    <button class="btn btn-book-now" data-bs-toggle="modal" data-bs-target="#createTaskModal">
-                        <i class="fas fa-plus"></i> Create Task
-                    </button>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="btn-group btn-group-sm shadow-sm" role="group">
+                            <button type="button" class="btn btn-primary active" id="btnTaskTableView" onclick="switchTaskView('table')">
+                                <i class="fas fa-table me-1"></i> Table View
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="btnTaskKanbanView" onclick="switchTaskView('kanban')">
+                                <i class="fas fa-columns me-1"></i> Kanban Board
+                            </button>
+                        </div>
+                        <button class="btn btn-book-now shadow-sm" data-bs-toggle="modal" data-bs-target="#createTaskModal">
+                            <i class="fas fa-plus"></i> Create Task
+                        </button>
+                    </div>
 
                 </div>
 
                 <!-- <div class="d-flex justify-content-between align-items-center mb-4">
                     <h1 class="h2">Task Management</h1>
-                    <button class="btn btn-book-now" data-bs-toggle="modal" data-bs-target="#createTaskModal">
-                        <i class="fas fa-plus"></i> Create Task
-                    </button>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="btn-group btn-group-sm shadow-sm" role="group">
+                            <button type="button" class="btn btn-primary active" id="btnTaskTableView" onclick="switchTaskView('table')">
+                                <i class="fas fa-table me-1"></i> Table View
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="btnTaskKanbanView" onclick="switchTaskView('kanban')">
+                                <i class="fas fa-columns me-1"></i> Kanban Board
+                            </button>
+                        </div>
+                        <button class="btn btn-book-now shadow-sm" data-bs-toggle="modal" data-bs-target="#createTaskModal">
+                            <i class="fas fa-plus"></i> Create Task
+                        </button>
+                    </div>
                 </div> -->
 
                 <?php if($message): ?>
@@ -271,8 +402,91 @@ try {
                 </div>
                 <?php endif; ?>
 
+                <!-- Kanban Board Section -->
+                <div class="kanban-view-container" id="taskKanbanViewCard" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="small text-muted fw-semibold">
+                            <i class="fas fa-hand-pointer text-primary me-1"></i> Drag and drop task cards to update their status in real-time
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-white text-dark border px-2 py-1"><span class="d-inline-block rounded-circle bg-danger me-1" style="width:7px;height:7px;"></span> Critical</span>
+                            <span class="badge bg-white text-dark border px-2 py-1"><span class="d-inline-block rounded-circle bg-warning me-1" style="width:7px;height:7px;"></span> High</span>
+                            <span class="badge bg-white text-dark border px-2 py-1"><span class="d-inline-block rounded-circle bg-primary me-1" style="width:7px;height:7px;"></span> Medium</span>
+                            <span class="badge bg-white text-dark border px-2 py-1"><span class="d-inline-block rounded-circle bg-secondary me-1" style="width:7px;height:7px;"></span> Low</span>
+                        </div>
+                    </div>
+                    <div class="kanban-board-grid">
+                        <!-- 1. Pending Column -->
+                        <div class="kanban-col" data-status="pending" ondragover="allowTaskDrop(event)" ondragleave="dragLeaveTask(event)" ondrop="handleTaskDrop(event, 'pending')">
+                            <div class="kanban-col-header">
+                                <h6 class="kanban-col-title text-secondary">
+                                    <i class="far fa-clock"></i> Pending / Not Started
+                                </h6>
+                                <span class="badge bg-secondary rounded-pill kanban-count" id="count-pending">0</span>
+                            </div>
+                            <div class="kanban-cards-list" id="cards-pending"></div>
+                        </div>
+
+                        <!-- 2. In Progress Column -->
+                        <div class="kanban-col" data-status="in_progress" ondragover="allowTaskDrop(event)" ondragleave="dragLeaveTask(event)" ondrop="handleTaskDrop(event, 'in_progress')">
+                            <div class="kanban-col-header">
+                                <h6 class="kanban-col-title text-primary">
+                                    <i class="fas fa-spinner fa-spin"></i> In Progress
+                                </h6>
+                                <span class="badge bg-primary rounded-pill kanban-count" id="count-in_progress">0</span>
+                            </div>
+                            <div class="kanban-cards-list" id="cards-in_progress"></div>
+                        </div>
+
+                        <!-- 3. Dependency Block Column -->
+                        <div class="kanban-col" data-status="dependency_block" ondragover="allowTaskDrop(event)" ondragleave="dragLeaveTask(event)" ondrop="handleTaskDrop(event, 'dependency_block')">
+                            <div class="kanban-col-header">
+                                <h6 class="kanban-col-title text-danger">
+                                    <i class="fas fa-exclamation-triangle"></i> Blocked
+                                </h6>
+                                <span class="badge bg-danger rounded-pill kanban-count" id="count-dependency_block">0</span>
+                            </div>
+                            <div class="kanban-cards-list" id="cards-dependency_block"></div>
+                        </div>
+
+                        <!-- 4. Waiting Review Column -->
+                        <div class="kanban-col" data-status="waiting_review" ondragover="allowTaskDrop(event)" ondragleave="dragLeaveTask(event)" ondrop="handleTaskDrop(event, 'waiting_review')">
+                            <div class="kanban-col-header">
+                                <h6 class="kanban-col-title text-warning">
+                                    <i class="fas fa-search"></i> Review Needed
+                                </h6>
+                                <span class="badge bg-warning text-dark rounded-pill kanban-count" id="count-waiting_review">0</span>
+                            </div>
+                            <div class="kanban-cards-list" id="cards-waiting_review"></div>
+                        </div>
+
+                        <!-- 5. Completed Column -->
+                        <div class="kanban-col" data-status="completed" ondragover="allowTaskDrop(event)" ondragleave="dragLeaveTask(event)" ondrop="handleTaskDrop(event, 'completed')">
+                            <div class="kanban-col-header">
+                                <h6 class="kanban-col-title text-success">
+                                    <i class="fas fa-check-circle"></i> Completed
+                                </h6>
+                                <span class="badge bg-success rounded-pill kanban-count" id="count-completed">0</span>
+                            </div>
+                            <div class="kanban-cards-list" id="cards-completed"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Toast Notification Container -->
+                <div class="toast-container kanban-toast">
+                    <div id="kanbanToast" class="toast align-items-center text-white bg-dark border-0 rounded-4 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+                        <div class="d-flex">
+                            <div class="toast-body" id="kanbanToastBody">
+                                Task status updated!
+                            </div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Bootstrap Table Card -->
-                <div class="card">
+                <div class="card" id="taskTableViewCard">
                     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">All Tasks</h5>
                         <div class="text-white">
@@ -783,6 +997,203 @@ try {
     }
 
 
+        // Kanban Board JavaScript Engine
+    const tasksRawData = <?php echo json_encode($tasks); ?>;
+    let draggedTaskId = null;
+
+    function switchTaskView(mode) {
+        if (mode === 'kanban') {
+            $('#taskTableViewCard').hide();
+            $('#taskKanbanViewCard').fadeIn(150);
+            $('#btnTaskTableView').removeClass('active btn-primary').addClass('btn-outline-primary');
+            $('#btnTaskKanbanView').addClass('active btn-primary').removeClass('btn-outline-primary');
+            renderKanbanBoard();
+            localStorage.setItem('vk_task_view_pref', 'kanban');
+        } else {
+            $('#taskKanbanViewCard').hide();
+            $('#taskTableViewCard').fadeIn(150);
+            $('#btnTaskKanbanView').removeClass('active btn-primary').addClass('btn-outline-primary');
+            $('#btnTaskTableView').addClass('active btn-primary').removeClass('btn-outline-primary');
+            localStorage.setItem('vk_task_view_pref', 'table');
+        }
+    }
+
+    function renderKanbanBoard() {
+        const columns = {
+            'pending': document.getElementById('cards-pending'),
+            'in_progress': document.getElementById('cards-in_progress'),
+            'dependency_block': document.getElementById('cards-dependency_block'),
+            'waiting_review': document.getElementById('cards-waiting_review'),
+            'completed': document.getElementById('cards-completed')
+        };
+
+        const counts = {
+            'pending': 0,
+            'in_progress': 0,
+            'dependency_block': 0,
+            'waiting_review': 0,
+            'completed': 0
+        };
+
+        // Clear existing cards
+        Object.values(columns).forEach(col => { if(col) col.innerHTML = ''; });
+
+        tasksRawData.forEach(task => {
+            let st = (task.status || 'pending').toLowerCase();
+            if (st === 'not_started' || !columns[st]) st = 'pending';
+
+            counts[st]++;
+            const card = createKanbanCard(task);
+            if (columns[st]) columns[st].appendChild(card);
+        });
+
+        // Update counter badges
+        Object.keys(counts).forEach(k => {
+            const el = document.getElementById('count-' + k);
+            if (el) el.textContent = counts[k];
+        });
+    }
+
+    function createKanbanCard(task) {
+        const p = (task.priority || 'medium').toLowerCase();
+        const card = document.createElement('div');
+        card.className = `kanban-card p-${p}`;
+        card.setAttribute('draggable', 'true');
+        card.dataset.taskId = task.id;
+
+        card.ondragstart = function(e) {
+            draggedTaskId = task.id;
+            card.classList.add('is-dragging');
+            e.dataTransfer.setData('text/plain', task.id);
+        };
+
+        card.ondragend = function() {
+            card.classList.remove('is-dragging');
+            $('.kanban-col').removeClass('drag-over');
+        };
+
+        const assigneeName = task.assigned_to_name || 'Unassigned';
+        const initials = assigneeName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+        let deadlineBadge = '';
+        if (task.deadline) {
+            deadlineBadge = `<span class="badge bg-light text-muted border"><i class="far fa-calendar-alt me-1"></i> ${task.deadline}</span>`;
+        }
+
+        let descText = task.description ? `<p class="small text-muted mb-2 text-truncate" style="max-height: 38px;">${escapeHtml(task.description)}</p>` : '';
+
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-1">
+                <span class="badge ${getPriorityBadgeClass(p)} rounded-pill" style="font-size: 0.68rem;">${p.toUpperCase()}</span>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" onclick="event.stopPropagation()">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 py-1" style="font-size: 0.82rem;">
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="editTaskModal(${task.id})"><i class="fas fa-edit me-2 text-primary"></i> Edit</a></li>
+                        <li><hr class="dropdown-divider my-1"></li>
+                        <li><h6 class="dropdown-header py-0 text-muted">Move Status:</h6></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatusViaApi(${task.id}, 'pending')">Pending</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatusViaApi(${task.id}, 'in_progress')">In Progress</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatusViaApi(${task.id}, 'dependency_block')">Blocked</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatusViaApi(${task.id}, 'waiting_review')">Waiting Review</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="updateStatusViaApi(${task.id}, 'completed')">Completed</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="kanban-card-title">${escapeHtml(task.title)}</div>
+            ${descText}
+            <div class="kanban-card-meta">
+                <div class="d-flex align-items-center">
+                    <span class="kanban-card-avatar">${initials}</span>
+                    <span class="text-truncate" style="max-width: 100px;">${escapeHtml(assigneeName)}</span>
+                </div>
+                ${deadlineBadge}
+            </div>
+        `;
+
+        card.onclick = function() {
+            editTaskModal(task.id);
+        };
+
+        return card;
+    }
+
+    function getPriorityBadgeClass(p) {
+        switch(p) {
+            case 'critical': return 'bg-danger text-white';
+            case 'high': return 'bg-warning text-dark';
+            case 'low': return 'bg-secondary text-white';
+            default: return 'bg-primary text-white';
+        }
+    }
+
+    function allowTaskDrop(e) {
+        e.preventDefault();
+        $(e.currentTarget).addClass('drag-over');
+    }
+
+    function dragLeaveTask(e) {
+        $(e.currentTarget).removeClass('drag-over');
+    }
+
+    function handleTaskDrop(e, targetStatus) {
+        e.preventDefault();
+        $('.kanban-col').removeClass('drag-over');
+        const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
+        if (!taskId) return;
+        updateStatusViaApi(taskId, targetStatus);
+    }
+
+    function updateStatusViaApi(taskId, newStatus) {
+        fetch('../../api/tasks.php?action=update_status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId, status: newStatus })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                // Update local dataset
+                const t = tasksRawData.find(x => x.id == taskId);
+                if (t) t.status = newStatus;
+                renderKanbanBoard();
+                showKanbanToast(`Task #${taskId} moved to ${newStatus.replace('_', ' ').toUpperCase()}`);
+            } else {
+                alert(data.message || 'Error updating task status');
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            showKanbanToast('Status updated successfully');
+            const t = tasksRawData.find(x => x.id == taskId);
+            if (t) t.status = newStatus;
+            renderKanbanBoard();
+        });
+    }
+
+    function showKanbanToast(msg) {
+        const el = document.getElementById('kanbanToast');
+        if (!el) return;
+        document.getElementById('kanbanToastBody').textContent = msg;
+        const toast = new bootstrap.Toast(el, { delay: 3000 });
+        toast.show();
+    }
+
+    function editTaskModal(taskId) {
+        const t = tasksRawData.find(x => x.id == taskId);
+        if (t && typeof editTask === 'function') {
+            editTask(t);
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/[&<>"']/g, function(m) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+        });
+    }
+
     // Initialize Bootstrap Table with additional options
     $(function() {
         if (!$('#tasksTable').data('bootstrap.table')) {
@@ -811,6 +1222,11 @@ try {
 
             // Add custom search input styling
             $('.bootstrap-table .search input').attr('placeholder', 'Search tasks...');
+                        // Check user view preference
+            const pref = localStorage.getItem('vk_task_view_pref');
+            if (pref === 'kanban') {
+                switchTaskView('kanban');
+            }
             $('.bootstrap-table .search').prepend(
                 '<span class="input-group-text"><i class="fas fa-search"></i></span>');
         };

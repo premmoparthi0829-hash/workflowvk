@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_leave'])) {
     $leave_type = $_POST['leave_type'];
     $start_date = $_POST['start_date'];
     $end_date = $_POST['end_date'];
+    $leave_duration = ($_POST['leave_duration'] ?? 'full') === 'half' ? 'half' : 'full';
     $reason = trim($_POST['reason']);
     
     // Calculate total days (excluding weekends)
@@ -47,15 +48,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_leave'])) {
     $interval = new DateInterval('P1D');
     $period = new DatePeriod($start, $interval, $end);
     
-    $total_days = 0;
+    $total_days = 0.0;
     $dates = [];
+
+    if ($leave_duration === 'half' && $start_date !== $end_date) {
+        $error = 'Half-day leave must have the same start and end date.';
+    }
     
     foreach ($period as $date) {
         $day_of_week = $date->format('N');
         if ($day_of_week < 6) { // Monday=1 to Friday=5
-            $total_days++;
+            $total_days += 1;
             $dates[] = $date->format('Y-m-d');
         }
+    }
+
+    if ($leave_duration === 'half' && $total_days > 0) {
+        $total_days = 0.5;
+    }
+
+    if ($total_days <= 0 && !isset($error)) {
+        $error = 'Select at least one weekday for leave.';
     }
     
     // Check if dates overlap with existing approved leave
@@ -72,11 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_leave'])) {
     $check_stmt->execute();
     $overlap = $check_stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($overlap['overlap'] > 0) {
+    if (!isset($error) && $overlap['overlap'] > 0) {
         $error = "You already have approved leave during this period!";
     } 
     // Check leave balance for paid leaves
-    elseif (in_array($leave_type, ['casual', 'sick', 'earned'])) {
+    elseif (!isset($error) && in_array($leave_type, ['casual', 'sick', 'earned'])) {
         $balance_field = $leave_type . '_leave';
         if ($leave_balance[$balance_field] < $total_days) {
             $error = "Insufficient " . ucfirst($leave_type) . " leave balance! Available: " . 
@@ -97,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_leave'])) {
         $insert_stmt->bindParam(':reason', $reason);
         
         if ($insert_stmt->execute()) {
-            $success = "Leave application submitted successfully! Total days: $total_days";
+            $success = "Leave application submitted successfully! Total days: " . rtrim(rtrim(number_format($total_days, 1), '0'), '.');
         } else {
             $error = "Failed to submit leave application.";
         }
@@ -119,6 +132,12 @@ $user_stmt = $conn->prepare($user_query);
 $user_stmt->bindParam(':id', $user_id);
 $user_stmt->execute();
 $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
+$format_leave_days = static function ($days) {
+    return rtrim(rtrim(number_format((float) $days, 1), '0'), '.');
+};
+$casual_leave_used = max(0, 12 - (float) ($leave_balance['casual_leave'] ?? 12));
+$sick_leave_used = max(0, 12 - (float) ($leave_balance['sick_leave'] ?? 12));
+$earned_leave_used = max(0, 15 - (float) ($leave_balance['earned_leave'] ?? 15));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -240,8 +259,8 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                                         <div class="card leave-balance-card leave-casual">
                                             <div class="card-body text-center">
                                                 <h6 class="card-title">Casual Leave</h6>
-                                                <h2><?php echo $leave_balance['casual_leave'] ?? 0; ?></h2>
-                                                <p class="card-text">Days Available</p>
+                                                <h2><?php echo $format_leave_days($casual_leave_used); ?>/12</h2>
+                                                <p class="card-text">Days Used / Allowance</p>
                                             </div>
                                         </div>
                                     </div>
@@ -249,8 +268,8 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                                         <div class="card leave-balance-card leave-sick">
                                             <div class="card-body text-center">
                                                 <h6 class="card-title">Sick Leave</h6>
-                                                <h2><?php echo $leave_balance['sick_leave'] ?? 0; ?></h2>
-                                                <p class="card-text">Days Available</p>
+                                                <h2><?php echo $format_leave_days($sick_leave_used); ?>/12</h2>
+                                                <p class="card-text">Days Used / Allowance</p>
                                             </div>
                                         </div>
                                     </div>
@@ -258,8 +277,8 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                                         <div class="card leave-balance-card leave-earned">
                                             <div class="card-body text-center">
                                                 <h6 class="card-title">Earned Leave</h6>
-                                                <h2><?php echo $leave_balance['earned_leave'] ?? 0; ?></h2>
-                                                <p class="card-text">Days Available</p>
+                                                <h2><?php echo $format_leave_days($earned_leave_used); ?>/15</h2>
+                                                <p class="card-text">Days Used / Allowance</p>
                                             </div>
                                         </div>
                                     </div>
@@ -323,6 +342,17 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                                                     required>
                                             </div>
                                             <div class="mb-3">
+                                                <span class="form-label d-block">Leave Duration *</span>
+                                                <div class="form-check form-check-inline">
+                                                    <input class="form-check-input" type="radio" name="leave_duration" id="duration_full" value="full" checked>
+                                                    <label class="form-check-label" for="duration_full">Full Day</label>
+                                                </div>
+                                                <div class="form-check form-check-inline">
+                                                    <input class="form-check-input" type="radio" name="leave_duration" id="duration_half" value="half">
+                                                    <label class="form-check-label" for="duration_half">Half Day</label>
+                                                </div>
+                                            </div>
+                                            <div class="mb-3">
                                                 <label for="reason" class="form-label">Reason *</label>
                                                 <textarea class="form-control" id="reason" name="reason" rows="3"
                                                     placeholder="Please provide reason for leave..."
@@ -378,11 +408,12 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                                                             </span>
                                                         </td>
                                                         <td>
-                                                            <?php echo date('d M', strtotime($leave['start_date'])); ?>
-                                                            -
-                                                            <?php echo date('d M Y', strtotime($leave['end_date'])); ?>
+                                                            <?php echo date('D, d M Y', strtotime($leave['start_date'])); ?>
+                                                            <?php if ($leave['start_date'] !== $leave['end_date']): ?>
+                                                            - <?php echo date('D, d M Y', strtotime($leave['end_date'])); ?>
+                                                            <?php endif; ?>
                                                         </td>
-                                                        <td><?php echo $leave['total_days']; ?></td>
+                                                        <td><?php echo $format_leave_days($leave['total_days']); ?></td>
                                                         <td>
                                                             <span class="badge status-<?php echo $leave['status']; ?>">
                                                                 <?php echo ucfirst($leave['status']); ?>
@@ -453,37 +484,47 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
     $(document).ready(function() {
+        function parseLocalDate(value) {
+            var parts = value.split('-').map(Number);
+            return new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+
         // Initialize date pickers
-        flatpickr("#start_date", {
+        var endPicker;
+        var startPicker = flatpickr("#start_date", {
             minDate: "today",
             dateFormat: "Y-m-d",
+            altInput: true,
+            altFormat: "d-m-Y",
             onChange: function(selectedDates, dateStr) {
-                // Set min date for end date
-                if (dateStr) {
-                    flatpickr("#end_date", {
-                        minDate: dateStr,
-                        dateFormat: "Y-m-d"
-                    });
+                if (dateStr && endPicker) {
+                    endPicker.set('minDate', dateStr);
+                    if (endPicker.selectedDates.length && endPicker.selectedDates[0] < selectedDates[0]) {
+                        endPicker.setDate(selectedDates[0], true);
+                    }
                 }
             }
         });
 
-        flatpickr("#end_date", {
-            dateFormat: "Y-m-d"
+        endPicker = flatpickr("#end_date", {
+            minDate: "today",
+            dateFormat: "Y-m-d",
+            altInput: true,
+            altFormat: "d-m-Y"
         });
 
         // Set default start date to tomorrow
         var tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        $('#start_date').val(tomorrow.toISOString().split('T')[0]);
+        startPicker.setDate(tomorrow, false);
 
-        // Set default end date to tomorrow + 1
-        var dayAfter = new Date();
-        dayAfter.setDate(dayAfter.getDate() + 2);
-        $('#end_date').val(dayAfter.toISOString().split('T')[0]);
+        // Set default end date to the day after tomorrow
+        var dayAfter = new Date(tomorrow);
+        dayAfter.setDate(dayAfter.getDate() + 1);
+        endPicker.setDate(dayAfter, false);
 
         // Calculate days when dates change
-        $('#start_date, #end_date').on('change', function() {
+        $('#start_date, #end_date, input[name="leave_duration"]').on('change', function() {
             calculateLeaveDays();
         });
 
@@ -492,17 +533,20 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
             var end = $('#end_date').val();
 
             if (start && end) {
-                var startDate = new Date(start);
-                var endDate = new Date(end);
+                var startDate = parseLocalDate(start);
+                var endDate = parseLocalDate(end);
 
                 if (startDate <= endDate) {
                     var totalDays = 0;
+                    var weekdays = [];
                     var current = new Date(startDate);
 
                     while (current <= endDate) {
                         var day = current.getDay(); // 0=Sunday, 6=Saturday
                         if (day !== 0 && day !== 6) { // Exclude weekends
                             totalDays++;
+                            weekdays.push(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(current) + ', ' +
+                                new Intl.DateTimeFormat(undefined, { day: '2-digit', month: 'short' }).format(current));
                         }
                         current.setDate(current.getDate() + 1);
                     }
@@ -511,8 +555,18 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
                     if (!$('#daysInfo').length) {
                         $('#reason').after('<div id="daysInfo" class="alert alert-info mt-2"></div>');
                     }
+                    var isHalfDay = $('input[name="leave_duration"]:checked').val() === 'half';
+                    if (isHalfDay && start !== end) {
+                        endPicker.setDate(startDate, false);
+                        endDate = new Date(startDate);
+                        totalDays = startDate.getDay() !== 0 && startDate.getDay() !== 6 ? 1 : 0;
+                        weekdays = totalDays ? [new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(startDate) + ', ' +
+                            new Intl.DateTimeFormat(undefined, { day: '2-digit', month: 'short' }).format(startDate)] : [];
+                    }
+                    var leaveDays = isHalfDay ? (totalDays ? '0.5' : '0') : String(totalDays);
+                    var dayLabel = weekdays.length ? ' (' + weekdays.join(', ') + ')' : '';
                     $('#daysInfo').html('<i class="fas fa-calculator"></i> Calculated Leave Days: <strong>' +
-                        totalDays + '</strong> (weekends excluded)');
+                        leaveDays + '</strong>' + dayLabel + ' (weekends excluded)');
                 }
             }
         }
