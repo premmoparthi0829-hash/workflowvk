@@ -204,6 +204,7 @@ try {
     <li class="nav-item"><a class="nav-link text-white" href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
     <li class="nav-item"><a class="nav-link text-white" href="tasks.php"><i class="fas fa-tasks"></i> Tasks</a></li>
     <li class="nav-item"><a class="nav-link text-white" href="departments.php"><i class="fas fa-sitemap"></i> Departments</a></li>
+    <li class="nav-item"><a class="nav-link text-white" href="joining_applications.php"><i class="fas fa-file-signature"></i> Joining Form</a></li>
     <li class="nav-item"><a class="nav-link text-white active bg-primary rounded" href="users.php"><i class="fas fa-users"></i> Users</a></li>
     <!-- Add this line for Performance Reports -->
     <li class="nav-item"><a class="nav-link text-white" href="performance.php"><i class="fas fa-chart-line"></i> Performance</a></li>

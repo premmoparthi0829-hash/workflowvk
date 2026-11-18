@@ -341,6 +341,8 @@ try {
                                 class="fas fa-tasks"></i> Tasks</a></li>
                     <li class="nav-item"><a class="nav-link text-white" href="departments.php"><i
                                 class="fas fa-sitemap"></i> Departments</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="joining_applications.php"><i
+                                class="fas fa-file-signature"></i> Joining Form</a></li>
                     <li class="nav-item"><a class="nav-link text-white" href="users.php"><i class="fas fa-users"></i>
                             Users</a></li>
                     <!-- Add this line for Performance Reports -->

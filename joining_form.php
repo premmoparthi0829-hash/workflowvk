@@ -1,0 +1,2424 @@
+<?php
+/**
+ * VK Logistics Hub - Electronic Employee Joining Form (Bilingual: English + Telugu)
+ * Converted from: VK_Logistics_Hub_Bilingual_Joining_Form_and_Associate_Policy.pdf (Pages 1 - 9)
+ * Stylized in TCS iON / Digialm Recruitment Portal Format (BEL / Government Application Form Style)
+ */
+
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/joining_i18n.php';
+
+$db = getDB();
+
+// Determine language (default to bilingual/en)
+$lang = isset($_GET['lang']) && in_array($_GET['lang'], ['en', 'te', 'bilingual']) ? $_GET['lang'] : 'bilingual';
+$is_embedded = (isset($_GET['embedded']) && $_GET['embedded'] == '1') || (isset($_POST['is_embedded']) && $_POST['is_embedded'] == '1');
+
+// Look up application by token or create new if permitted
+$token = $_GET['token'] ?? null;
+$application = null;
+$personal = null;
+$present_address = null;
+$permanent_address = null;
+$identity = null;
+$emergency = null;
+$ref1 = null;
+$ref2 = null;
+$prev_emp = null;
+$declaration = null;
+$signature = null;
+$uploaded_docs = [];
+
+if ($token) {
+    $stmt = $db->prepare("SELECT * FROM employee_joining_applications WHERE token = ?");
+    $stmt->execute([$token]);
+    $application = $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+// If no token or not found, handle standalone new application creation
+if (!$application) {
+    // Generate new unique application reference safely without collisions
+    $yearMonth = date('Ym');
+    $stmt = $db->query("SELECT application_no FROM employee_joining_applications WHERE application_no LIKE 'VK-JOIN-{$yearMonth}-%' ORDER BY id DESC LIMIT 1");
+    $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+    $max_num = 0;
+    if ($row && !empty($row['application_no']) && preg_match('/-(\d+)$/', $row['application_no'], $m)) {
+        $max_num = intval($m[1]);
+    }
+    $cstmt = $db->query("SELECT COUNT(*) as cnt FROM employee_joining_applications WHERE application_no LIKE 'VK-JOIN-{$yearMonth}-%'");
+    $cnt = $cstmt ? ($cstmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0) : 0;
+    $next_num = max($max_num, $cnt) + 1;
+    
+    $new_token = null;
+    $inserted = false;
+    for ($attempt = 0; $attempt < 15; $attempt++) {
+        $app_no = sprintf('VK-JOIN-%s-%04d', $yearMonth, $next_num + $attempt);
+        $new_token = bin2hex(random_bytes(24));
+        try {
+            $ins = $db->prepare("INSERT INTO employee_joining_applications (application_no, employee_type, token, status, created_at) VALUES (?, 'new_joiner', ?, 'in_progress', NOW())");
+            $ins->execute([$app_no, $new_token]);
+            $app_id = $db->lastInsertId();
+            $inserted = true;
+            break;
+        } catch (PDOException $pe) {
+            if ($pe->getCode() == 23000 || strpos($pe->getMessage(), '1062') !== false) {
+                continue;
+            }
+            error_log("Joining Form Token Creation Error: " . $pe->getMessage());
+            break;
+        }
+    }
+    
+    if ($inserted && $new_token) {
+        $emb_param = $is_embedded ? '&embedded=1' : '';
+        header("Location: joining_form.php?token={$new_token}&lang={$lang}{$emb_param}");
+        exit;
+    } else {
+        error_log("Failed to initialize joining application after multiple attempts");
+        die("Unable to initialize new application at this time. Please try again.");
+    }
+}
+
+$app_id = $application['id'];
+
+// If application is already submitted or approved, show confirmation/status view unless correction_required
+$is_editable = in_array($application['status'], ['draft', 'sent_to_employee', 'in_progress', 'correction_required']);
+
+// Load existing data if any
+$stmt = $db->prepare("SELECT * FROM employee_personal_details WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$personal = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'present'");
+$stmt->execute([$app_id]);
+$present_address = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'permanent'");
+$stmt->execute([$app_id]);
+$permanent_address = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_identity_documents WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$identity = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_emergency_contacts WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$emergency = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 1");
+$stmt->execute([$app_id]);
+$ref1 = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 2");
+$stmt->execute([$app_id]);
+$ref2 = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_previous_employment WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$prev_emp = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_declarations WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$declaration = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_signatures WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$signature = $stmt->fetch(PDO::FETCH_ASSOC);
+
+$stmt = $db->prepare("SELECT * FROM employee_uploaded_documents WHERE application_id = ?");
+$stmt->execute([$app_id]);
+$uploaded_docs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch departments for dropdown
+$departments = $db->query("SELECT id, name FROM departments ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Handle POST Submission (Draft save or Final Submit)
+$errors = [];
+$success_message = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
+    $action = $_POST['action'] ?? 'save_draft'; // 'save_draft' or 'submit_form'
+    
+    // Form fields
+    $employee_type = $_POST['employee_type'] ?? 'new_joiner';
+    $employee_id = trim($_POST['employee_id'] ?? '');
+    $full_name = trim($_POST['full_name'] ?? '');
+    $father_name = trim($_POST['father_name'] ?? '');
+    $dob = trim($_POST['dob'] ?? '');
+    $gender = in_array($_POST['gender'] ?? '', ['male', 'female', 'other']) ? $_POST['gender'] : 'male';
+    $mobile = trim($_POST['mobile'] ?? '');
+    $alternate_mobile = trim($_POST['alternate_mobile'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $designation = trim($_POST['designation'] ?? '');
+    $department_id = !empty($_POST['department_id']) ? intval($_POST['department_id']) : null;
+    $joining_date = trim($_POST['joining_date'] ?? '');
+    $blood_group = trim($_POST['blood_group'] ?? '');
+    $previous_work_experience = trim($_POST['previous_work_experience'] ?? '');
+    
+    // Clean dates to valid Y-m-d or null
+    $dob_clean = (!empty($dob) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob)) ? $dob : null;
+    $joining_date_clean = (!empty($joining_date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $joining_date)) ? $joining_date : null;
+    
+    // Present address
+    $p_house = trim($_POST['present_house_flat_no'] ?? '');
+    $p_street = trim($_POST['present_street_area'] ?? '');
+    $p_village = trim($_POST['present_village_town'] ?? '');
+    $p_mandal = trim($_POST['present_mandal'] ?? '');
+    $p_district = trim($_POST['present_district'] ?? '');
+    $p_state = trim($_POST['present_state'] ?? '');
+    $p_pincode = trim($_POST['present_pincode'] ?? '');
+    
+    // Permanent address
+    $same_as_present = isset($_POST['same_as_present']) ? 1 : 0;
+    if ($same_as_present) {
+        $perm_house = $p_house;
+        $perm_street = $p_street;
+        $perm_village = $p_village;
+        $perm_mandal = $p_mandal;
+        $perm_district = $p_district;
+        $perm_state = $p_state;
+        $perm_pincode = $p_pincode;
+    } else {
+        $perm_house = trim($_POST['perm_house_flat_no'] ?? '');
+        $perm_street = trim($_POST['perm_street_area'] ?? '');
+        $perm_village = trim($_POST['perm_village_town'] ?? '');
+        $perm_mandal = trim($_POST['perm_mandal'] ?? '');
+        $perm_district = trim($_POST['perm_district'] ?? '');
+        $perm_state = trim($_POST['perm_state'] ?? '');
+        $perm_pincode = trim($_POST['perm_pincode'] ?? '');
+    }
+    
+    // Identity details
+    $aadhaar_raw = preg_replace('/\D/', '', $_POST['aadhaar_number'] ?? '');
+    $aadhaar_last4 = substr($aadhaar_raw, -4);
+    $aadhaar_masked = strlen($aadhaar_raw) === 12 
+        ? 'XXXX-XXXX-' . $aadhaar_last4 
+        : (trim($_POST['aadhaar_number'] ?? ''));
+        
+    $other_id_type = trim($_POST['other_id_type'] ?? '');
+    $other_id_number = trim($_POST['other_id_number'] ?? '');
+    $documents_submitted = isset($_POST['docs_submitted']) && is_array($_POST['docs_submitted']) 
+        ? implode(', ', $_POST['docs_submitted']) 
+        : trim($_POST['documents_submitted'] ?? '');
+        
+    // Emergency contact
+    $emg_name = trim($_POST['emergency_name'] ?? '');
+    $emg_rel = trim($_POST['emergency_rel'] ?? '');
+    $emg_mobile = trim($_POST['emergency_mobile'] ?? '');
+    $emg_alt_mobile = trim($_POST['emergency_alt_mobile'] ?? '');
+    $emg_address = trim($_POST['emergency_address'] ?? '');
+    
+    // References
+    $ref1_name = trim($_POST['ref1_name'] ?? '');
+    $ref1_rel = trim($_POST['ref1_rel'] ?? '');
+    $ref1_mobile = trim($_POST['ref1_mobile'] ?? '');
+    $ref1_address = trim($_POST['ref1_address'] ?? '');
+    
+    $ref2_name = trim($_POST['ref2_name'] ?? '');
+    $ref2_rel = trim($_POST['ref2_rel'] ?? '');
+    $ref2_mobile = trim($_POST['ref2_mobile'] ?? '');
+    $ref2_address = trim($_POST['ref2_address'] ?? '');
+    
+    // Previous employment
+    $prev_employer = trim($_POST['prev_employer'] ?? '');
+    $prev_desig = trim($_POST['prev_desig'] ?? '');
+    $prev_phone = trim($_POST['prev_phone'] ?? '');
+    $prev_reason = trim($_POST['prev_reason'] ?? '');
+    
+    // Declarations & Policies
+    $terms_ack = isset($_POST['terms_acknowledged']) ? 1 : 0;
+    $data_consent = isset($_POST['data_consent_acknowledged']) ? 1 : 0;
+    $pickup_policy_ack = isset($_POST['pickup_policy_acknowledged']) ? 1 : 0;
+    $is_pickup_role = (stripos($designation, 'Pickup') !== false || stripos($designation, 'Delivery') !== false);
+    
+    // Signature data
+    $signature_data = $_POST['signature_data'] ?? '';
+    
+    // Mandatory checks if final submit
+    if ($action === 'submit_form') {
+        if (empty($full_name)) $errors[] = "Full Name is required / పూర్తి పేరు అవసరం.";
+        if (empty($father_name)) $errors[] = "Father's Name is required / తండ్రి పేరు అవసరం.";
+        if (empty($dob)) $errors[] = "Date of Birth is required / పుట్టిన తేదీ అవసరం.";
+        if (empty($mobile)) $errors[] = "Mobile Number is required / మొబైల్ నంబర్ అవసరం.";
+        if (empty($email)) $errors[] = "Email Address is required / ఈమెయిల్ అవసరం.";
+        if (empty($designation)) $errors[] = "Designation is required / ఉద్యోగ హోదా అవసరం.";
+        if (empty($p_house) || empty($p_village) || empty($p_district) || empty($p_pincode)) {
+            $errors[] = "Present address details are required / ప్రస్తుత చిరునామా వివరాలు అవసరం.";
+        }
+        if (!$terms_ack) {
+            $errors[] = "You must acknowledge and accept the Employment Terms & Conditions / ఉపాధి నిబంధనలను అంగీకరించాలి.";
+        }
+        if (!$data_consent) {
+            $errors[] = "You must complete the Employee Declaration and Data Authorization / ఉద్యోగి డిక్లరేషన్‌ను అంగీకరించాలి.";
+        }
+        if ($is_pickup_role && !$pickup_policy_ack) {
+            $errors[] = "Pickup Associates must acknowledge receipt of the Associate Leave & Incentive Policy / పికప్ అసోసియేట్ పాలసీని అంగీకరించాలి.";
+        }
+        if (empty($signature_data) && empty($signature['signature_image_path'])) {
+            $errors[] = "Digital signature is required / డిజిటల్ సంతకం తప్పనిసరి.";
+        }
+    }
+    
+    if (empty($errors)) {
+        try {
+            $db->beginTransaction();
+            
+            // 1. Handle Photo Upload
+            $photo_path = $personal['photo_path'] ?? null;
+            if (isset($_FILES['passport_photo']) && $_FILES['passport_photo']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['passport_photo']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+                    $photo_filename = 'photo_' . $app_id . '_' . time() . '.' . $ext;
+                    $dest = __DIR__ . '/uploads/photos/' . $photo_filename;
+                    if (move_uploaded_file($_FILES['passport_photo']['tmp_name'], $dest)) {
+                        $photo_path = 'uploads/photos/' . $photo_filename;
+                    }
+                }
+            }
+            
+            // 2. Handle Thumb Impression Upload
+            $thumb_path = $signature['thumb_impression_path'] ?? null;
+            if (isset($_FILES['thumb_impression']) && $_FILES['thumb_impression']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['thumb_impression']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+                    $thumb_filename = 'thumb_' . $app_id . '_' . time() . '.' . $ext;
+                    $dest = __DIR__ . '/uploads/signatures/' . $thumb_filename;
+                    if (move_uploaded_file($_FILES['thumb_impression']['tmp_name'], $dest)) {
+                        $thumb_path = 'uploads/signatures/' . $thumb_filename;
+                    }
+                }
+            }
+            
+            // 3. Handle Digital Signature Canvas Base64
+            $sig_path = $signature['signature_image_path'] ?? null;
+            if (!empty($signature_data) && strpos($signature_data, 'data:image/png;base64,') === 0) {
+                $data_img = str_replace('data:image/png;base64,', '', $signature_data);
+                $data_img = str_replace(' ', '+', $data_img);
+                $decoded = base64_decode($data_img);
+                if ($decoded !== false) {
+                    $sig_filename = 'sig_emp_' . $app_id . '_' . time() . '.png';
+                    $dest = __DIR__ . '/uploads/signatures/' . $sig_filename;
+                    if (file_put_contents($dest, $decoded)) {
+                        $sig_path = 'uploads/signatures/' . $sig_filename;
+                    }
+                }
+            }
+            
+            // 4. Update Application Status
+            $new_status = ($action === 'submit_form') ? 'pending_hr_verification' : 'in_progress';
+            $old_status = $application['status'];
+            
+            $stmt = $db->prepare("UPDATE employee_joining_applications SET 
+                employee_type = ?, 
+                status = ?, 
+                submitted_at = " . ($action === 'submit_form' ? 'NOW()' : 'submitted_at') . ", 
+                updated_at = NOW() 
+                WHERE id = ?");
+            $stmt->execute([$employee_type, $new_status, $app_id]);
+            
+            // 5. Upsert Personal Details
+            $stmt = $db->prepare("INSERT INTO employee_personal_details (
+                application_id, employee_id, full_name, father_name, dob, gender, mobile, 
+                alternate_mobile, email, designation, department_id, joining_date, blood_group, 
+                previous_work_experience, photo_path, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE 
+                employee_id = VALUES(employee_id),
+                full_name = VALUES(full_name),
+                father_name = VALUES(father_name),
+                dob = VALUES(dob),
+                gender = VALUES(gender),
+                mobile = VALUES(mobile),
+                alternate_mobile = VALUES(alternate_mobile),
+                email = VALUES(email),
+                designation = VALUES(designation),
+                department_id = VALUES(department_id),
+                joining_date = VALUES(joining_date),
+                blood_group = VALUES(blood_group),
+                previous_work_experience = VALUES(previous_work_experience),
+                photo_path = COALESCE(VALUES(photo_path), photo_path),
+                updated_at = NOW()");
+            $stmt->execute([
+                $app_id, 
+                !empty($employee_id) ? $employee_id : null, 
+                !empty($full_name) ? $full_name : null, 
+                !empty($father_name) ? $father_name : null, 
+                $dob_clean, 
+                $gender, 
+                !empty($mobile) ? $mobile : null,
+                !empty($alternate_mobile) ? $alternate_mobile : null, 
+                !empty($email) ? $email : null, 
+                !empty($designation) ? $designation : null, 
+                $department_id, 
+                $joining_date_clean, 
+                !empty($blood_group) ? $blood_group : null,
+                !empty($previous_work_experience) ? $previous_work_experience : null, 
+                $photo_path
+            ]);
+            
+            // 6. Upsert Addresses (Present & Permanent)
+            if ($present_address) {
+                $up = $db->prepare("UPDATE employee_addresses SET house_flat_no = ?, street_area = ?, village_town = ?, mandal = ?, district = ?, state = ?, pincode = ? WHERE id = ?");
+                $up->execute([$p_house, $p_street, $p_village, $p_mandal, $p_district, $p_state, $p_pincode, $present_address['id']]);
+            } else {
+                $ins = $db->prepare("INSERT INTO employee_addresses (application_id, address_type, house_flat_no, street_area, village_town, mandal, district, state, pincode, is_same_as_present) VALUES (?, 'present', ?, ?, ?, ?, ?, ?, ?, 0)");
+                $ins->execute([$app_id, $p_house, $p_street, $p_village, $p_mandal, $p_district, $p_state, $p_pincode]);
+            }
+            
+            if ($permanent_address) {
+                $up = $db->prepare("UPDATE employee_addresses SET house_flat_no = ?, street_area = ?, village_town = ?, mandal = ?, district = ?, state = ?, pincode = ?, is_same_as_present = ? WHERE id = ?");
+                $up->execute([$perm_house, $perm_street, $perm_village, $perm_mandal, $perm_district, $perm_state, $perm_pincode, $same_as_present, $permanent_address['id']]);
+            } else {
+                $ins = $db->prepare("INSERT INTO employee_addresses (application_id, address_type, house_flat_no, street_area, village_town, mandal, district, state, pincode, is_same_as_present) VALUES (?, 'permanent', ?, ?, ?, ?, ?, ?, ?, ?)");
+                $ins->execute([$app_id, $perm_house, $perm_street, $perm_village, $perm_mandal, $perm_district, $perm_state, $perm_pincode, $same_as_present]);
+            }
+            
+            // 7. Upsert Identity Documents
+            $stmt = $db->prepare("INSERT INTO employee_identity_documents (
+                application_id, aadhaar_masked, aadhaar_last4, other_id_type, other_id_number, documents_submitted
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                aadhaar_masked = VALUES(aadhaar_masked),
+                aadhaar_last4 = VALUES(aadhaar_last4),
+                other_id_type = VALUES(other_id_type),
+                other_id_number = VALUES(other_id_number),
+                documents_submitted = VALUES(documents_submitted)");
+            $stmt->execute([
+                $app_id, 
+                !empty($aadhaar_masked) ? $aadhaar_masked : null, 
+                !empty($aadhaar_last4) ? $aadhaar_last4 : null, 
+                !empty($other_id_type) ? $other_id_type : null, 
+                !empty($other_id_number) ? $other_id_number : null, 
+                !empty($documents_submitted) ? $documents_submitted : null
+            ]);
+            
+            // 8. Upsert Emergency Contact
+            $stmt = $db->prepare("INSERT INTO employee_emergency_contacts (
+                application_id, full_name, relationship, mobile, alternate_mobile, address
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                full_name = VALUES(full_name),
+                relationship = VALUES(relationship),
+                mobile = VALUES(mobile),
+                alternate_mobile = VALUES(alternate_mobile),
+                address = VALUES(address)");
+            $stmt->execute([$app_id, $emg_name, $emg_rel, $emg_mobile, $emg_alt_mobile, $emg_address]);
+            
+            // 9. Upsert References
+            if ($ref1) {
+                $up = $db->prepare("UPDATE employee_references SET full_name = ?, relationship_how_known = ?, mobile = ?, address = ? WHERE id = ?");
+                $up->execute([$ref1_name, $ref1_rel, $ref1_mobile, $ref1_address, $ref1['id']]);
+            } else {
+                $ins = $db->prepare("INSERT INTO employee_references (application_id, reference_number, full_name, relationship_how_known, mobile, address) VALUES (?, 1, ?, ?, ?, ?)");
+                $ins->execute([$app_id, $ref1_name, $ref1_rel, $ref1_mobile, $ref1_address]);
+            }
+            if ($ref2) {
+                $up = $db->prepare("UPDATE employee_references SET full_name = ?, relationship_how_known = ?, mobile = ?, address = ? WHERE id = ?");
+                $up->execute([$ref2_name, $ref2_rel, $ref2_mobile, $ref2_address, $ref2['id']]);
+            } else {
+                $ins = $db->prepare("INSERT INTO employee_references (application_id, reference_number, full_name, relationship_how_known, mobile, address) VALUES (?, 2, ?, ?, ?, ?)");
+                $ins->execute([$app_id, $ref2_name, $ref2_rel, $ref2_mobile, $ref2_address]);
+            }
+            
+            // 10. Upsert Previous Employment
+            $stmt = $db->prepare("INSERT INTO employee_previous_employment (
+                application_id, employer_name, designation, employer_phone, reason_for_leaving
+            ) VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                employer_name = VALUES(employer_name),
+                designation = VALUES(designation),
+                employer_phone = VALUES(employer_phone),
+                reason_for_leaving = VALUES(reason_for_leaving)");
+            $stmt->execute([$app_id, $prev_employer, $prev_desig, $prev_phone, $prev_reason]);
+            
+            // 11. Upsert Declaration
+            $stmt = $db->prepare("INSERT INTO employee_declarations (
+                application_id, terms_acknowledged, data_consent_acknowledged, pickup_policy_acknowledged, declaration_date
+            ) VALUES (?, ?, ?, ?, CURDATE())
+            ON DUPLICATE KEY UPDATE
+                terms_acknowledged = VALUES(terms_acknowledged),
+                data_consent_acknowledged = VALUES(data_consent_acknowledged),
+                pickup_policy_acknowledged = VALUES(pickup_policy_acknowledged),
+                declaration_date = CURDATE()");
+            $stmt->execute([$app_id, $terms_ack, $data_consent, $pickup_policy_ack]);
+            
+            // 12. Upsert Signature
+            if ($sig_path || $thumb_path) {
+                $client_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                $stmt = $db->prepare("INSERT INTO employee_signatures (
+                    application_id, signature_image_path, thumb_impression_path, signed_ip, signed_at
+                ) VALUES (?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                    signature_image_path = COALESCE(VALUES(signature_image_path), signature_image_path),
+                    thumb_impression_path = COALESCE(VALUES(thumb_impression_path), thumb_impression_path),
+                    signed_ip = VALUES(signed_ip),
+                    signed_at = NOW()");
+                $stmt->execute([$app_id, $sig_path, $thumb_path, $client_ip]);
+            }
+            
+            // 13. Handle Document Uploads
+            $doc_types = [
+                'aadhaar_doc' => 'Aadhaar Card',
+                'pan_doc' => 'PAN Card',
+                'dl_doc' => 'Driving License',
+                'bank_doc' => 'Bank Passbook / Cheque',
+                'exp_cert_doc' => 'Experience Certificate'
+            ];
+            
+            foreach ($doc_types as $input_key => $doc_label) {
+                if (isset($_FILES[$input_key]) && $_FILES[$input_key]['error'] === UPLOAD_ERR_OK) {
+                    $orig_name = $_FILES[$input_key]['name'];
+                    $ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+                    $size = $_FILES[$input_key]['size'];
+                    $mime = $_FILES[$input_key]['type'];
+                    
+                    if (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png'])) {
+                        $stored_name = 'doc_' . $app_id . '_' . $input_key . '_' . time() . '.' . $ext;
+                        $dest = __DIR__ . '/uploads/documents/' . $stored_name;
+                        if (move_uploaded_file($_FILES[$input_key]['tmp_name'], $dest)) {
+                            $stored_rel = 'uploads/documents/' . $stored_name;
+                            $doc_ins = $db->prepare("INSERT INTO employee_uploaded_documents (application_id, document_type, original_file_name, stored_file_path, file_size_bytes, mime_type) VALUES (?, ?, ?, ?, ?, ?)");
+                            $doc_ins->execute([$app_id, $doc_label, $orig_name, $stored_rel, $size, $mime]);
+                        }
+                    }
+                }
+            }
+            
+            // 14. Record Status History
+            if ($old_status !== $new_status) {
+                $hist = $db->prepare("INSERT INTO employee_joining_status_history (application_id, from_status, to_status, changed_by_role, remarks) VALUES (?, ?, ?, 'employee', ?)");
+                $remarks = ($action === 'submit_form') ? 'Application submitted by candidate.' : 'Application draft saved.';
+                $hist->execute([$app_id, $old_status, $new_status, $remarks]);
+            }
+            
+            $db->commit();
+            
+            // Refresh application data
+            $stmt = $db->prepare("SELECT * FROM employee_joining_applications WHERE id = ?");
+            $stmt->execute([$app_id]);
+            $application = $stmt->fetch(PDO::FETCH_ASSOC);
+            $is_editable = in_array($application['status'], ['draft', 'sent_to_employee', 'in_progress', 'correction_required']);
+            
+            if ($action === 'submit_form') {
+                $success_message = "Your Electronic Joining Form has been successfully submitted! Application ID: " . htmlspecialchars($application['application_no']);
+            } else {
+                $success_message = "Your draft has been saved successfully. You can return anytime using your secure link.";
+            }
+            
+            // Reload refreshed entities
+            $stmt = $db->prepare("SELECT * FROM employee_personal_details WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $personal = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            $stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'present'");
+            $stmt->execute([$app_id]);
+            $present_address = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'permanent'");
+            $stmt->execute([$app_id]);
+            $permanent_address = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_identity_documents WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $identity = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_emergency_contacts WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $emergency = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 1");
+            $stmt->execute([$app_id]);
+            $ref1 = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 2");
+            $stmt->execute([$app_id]);
+            $ref2 = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_previous_employment WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $prev_emp = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_declarations WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $declaration = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_signatures WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $signature = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $stmt = $db->prepare("SELECT * FROM employee_uploaded_documents WHERE application_id = ?");
+            $stmt->execute([$app_id]);
+            $uploaded_docs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            $db->rollBack();
+            error_log("Joining Form Save Error [App ID: $app_id]: " . $e->getMessage());
+            $errors[] = "Unable to process and save your information at this time. Please ensure the entered data is correct and try again. / మీ వివరాలను ప్రస్తుతం భద్రపరచడం సాధ్యం కాలేదు. దయచేసి ఎంటర్ చేసిన వివరాలు సరైనవేనా అని సరిచూసుకొని మళ్లీ ప్రయత్నించండి.";
+        }
+    }
+}
+
+// Helper function to render bilingual labels
+function lbl($key, $lang = 'bilingual') {
+    if ($lang === 'en') {
+        return htmlspecialchars(JoiningI18n::t($key, 'en'));
+    } elseif ($lang === 'te') {
+        return htmlspecialchars(JoiningI18n::t($key, 'te'));
+    } else {
+        // Bilingual display: English with Telugu translation
+        $en = JoiningI18n::t($key, 'en');
+        $te = JoiningI18n::t($key, 'te');
+        if ($en === $te || empty($te)) {
+            return htmlspecialchars($en);
+        }
+        return htmlspecialchars($en) . ' <span class="te-text text-muted fw-normal" style="font-size: 0.9em; font-family: sans-serif;">' . htmlspecialchars($te) . '</span>';
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VK Logistics Hub Application Form</title>
+    <!-- Fonts & Bootstrap 5 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Ramabhadra&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bel-purple: #1e1145;
+            --bel-purple-dark: #150a33;
+            --bel-purple-light: #2b1763;
+            --bel-slate-head: #eaedf1;
+            --bel-border: #ced4da;
+            --bel-border-card: #d5d9df;
+            --bel-bg: #f5f6f8;
+            --bel-text: #1e293b;
+            --bel-label: #334155;
+            --bel-red: #dc2626;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background-color: var(--bel-bg);
+            color: var(--bel-text);
+            margin: 0;
+            padding: 0;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        <?php if ($is_embedded): ?>
+        html, body {
+            overflow: hidden !important;
+            overflow-y: hidden !important;
+            overflow-x: hidden !important;
+            height: auto !important;
+        }
+        <?php endif; ?>
+
+        .te-text {
+            font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, sans-serif;
+        }
+
+        /* 1. TOP WHITE CORPORATE BANNER (BEL STYLE) */
+        .bel-top-logo-banner {
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }
+
+        .bel-logo-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .bel-brand-logo-img {
+            max-height: 84px;
+            width: auto;
+            max-width: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* 2. SOLID DEEP PURPLE NAV BAR */
+        .bel-top-nav-bar {
+            background-color: var(--bel-purple);
+            color: #ffffff;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        }
+
+        .bel-nav-container {
+            width: 100%;
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .bel-nav-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            display: flex;
+            align-items: center;
+        }
+
+        .bel-nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .bel-lang-group {
+            display: inline-flex;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            background: rgba(0,0,0,0.15);
+        }
+
+        .bel-lang-pill {
+            padding: 6px 14px;
+            font-size: 13px;
+            color: #ffffff;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .bel-lang-pill:hover {
+            color: #ffffff;
+            background: rgba(255,255,255,0.15);
+        }
+
+        .bel-lang-pill.active {
+            background: #ffffff;
+            color: var(--bel-purple);
+        }
+
+        .bel-nav-btn {
+            background: rgba(255,255,255,0.1);
+            color: #ffffff;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .bel-nav-btn:hover {
+            background: #ffffff;
+            color: var(--bel-purple);
+        }
+
+        .bel-logout-btn {
+            background: #ffffff;
+            color: var(--bel-purple);
+            border: none;
+            border-radius: 4px;
+            padding: 6px 18px;
+            font-size: 13px;
+            font-weight: 800;
+            text-decoration: none;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
+        }
+
+        .bel-logout-btn:hover {
+            background: #f1f5f9;
+            color: var(--bel-purple);
+            transform: translateY(-1px);
+        }
+
+        /* 3. MAIN PAGE CONTAINER */
+        .bel-content-wrapper {
+            max-width: 1280px;
+            margin: 20px auto 40px;
+            padding: 0 16px;
+        }
+
+        /* 4. REFERENCE & STATUS INFO STRIP */
+        .bel-info-strip {
+            background: #ffffff;
+            border: 1px solid var(--bel-border-card);
+            border-radius: 6px;
+            padding: 12px 20px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+            font-size: 14.5px;
+        }
+
+        /* PERMANENT FIX FOR STATUS PILL (NO BOOTSTRAP OVERRIDES / NO CLIPPING) */
+        .status-pill {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: auto !important;
+            min-height: 28px !important;
+            max-height: 32px !important;
+            overflow: visible !important;
+            padding: 5px 16px !important;
+            border-radius: 20px !important;
+            font-size: 12px !important;
+            font-weight: 800 !important;
+            line-height: 1.3 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            white-space: nowrap !important;
+            vertical-align: middle !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .status-pill.st-in-progress {
+            background-color: #e0e7ff !important;
+            color: #3730a3 !important;
+            border: 1px solid #c7d2fe !important;
+        }
+
+        .status-pill.st-pending {
+            background-color: #fef3c7 !important;
+            color: #92400e !important;
+            border: 1px solid #fde68a !important;
+        }
+
+        .status-pill.st-approved {
+            background-color: #dcfce7 !important;
+            color: #166534 !important;
+            border: 1px solid #bbf7d0 !important;
+        }
+
+        .status-pill.st-correction {
+            background-color: #fee2e2 !important;
+            color: #991b1b !important;
+            border: 1px solid #fecaca !important;
+        }
+
+        /* 5. INSTRUCTIONS ACCORDION CARD */
+        .bel-section-card {
+            background: #ffffff;
+            border: 1px solid var(--bel-border-card);
+            border-radius: 6px;
+            margin-bottom: 18px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+            overflow: hidden;
+        }
+
+        .bel-section-head {
+            background-color: var(--bel-slate-head);
+            border-bottom: 1px solid var(--bel-border-card);
+            padding: 13px 22px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .bel-section-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+        }
+
+        .bel-toggle-btn {
+            background: transparent;
+            border: none;
+            color: #1e293b;
+            font-weight: 800;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+
+        .bel-section-body {
+            padding: 24px 26px;
+            background: #ffffff;
+        }
+
+        .bel-note-red {
+            border: 1px dashed #fca5a5;
+            background-color: #fef2f2;
+            padding: 14px 18px;
+            border-radius: 5px;
+            color: #991b1b;
+            font-size: 13.5px;
+            line-height: 1.6;
+        }
+
+        .bel-note-red strong {
+            color: #b91c1c;
+            font-weight: 800;
+        }
+
+        .bel-note-dashed {
+            border: 1px dashed #cbd5e1;
+            background: #f8fafc;
+            padding: 12px 18px;
+            border-radius: 5px;
+            color: #334155;
+            margin-bottom: 16px;
+            font-size: 13.5px;
+            line-height: 1.6;
+        }
+
+        /* 6. PRIMARY TABS BAR (BEL / DIGIALM STYLE) */
+        .bel-tabs-bar {
+            background-color: var(--bel-purple);
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow-x: auto;
+            border-radius: 6px 6px 0 0;
+            white-space: nowrap;
+        }
+
+        .bel-tab-item {
+            background: var(--bel-purple);
+            color: #ffffff;
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 5px;
+            padding: 12px 22px;
+            font-size: 13.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .bel-tab-item:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: #ffffff;
+        }
+
+        .bel-tab-item.active {
+            background: #ffffff !important;
+            color: var(--bel-purple) !important;
+            border-color: #ffffff !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+
+        /* 7. FORM INPUTS & LABELS (DIGIALM ACCURACY) */
+        .form-label {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--bel-label);
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .form-control, .form-select {
+            font-size: 14px;
+            height: 44px;
+            border: 1.5px solid var(--bel-border);
+            border-radius: 5px;
+            padding: 8px 14px;
+            color: #0f172a;
+            background-color: #ffffff;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        textarea.form-control {
+            height: auto;
+            min-height: 90px;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--bel-purple);
+            outline: 0;
+            box-shadow: 0 0 0 3px rgba(30, 17, 69, 0.15);
+        }
+
+        .form-control[readonly], .form-control[disabled], .form-select[disabled] {
+            background-color: #f1f3f6 !important;
+            color: #475569 !important;
+            cursor: not-allowed;
+        }
+
+        .input-group-text {
+            font-size: 14px;
+            font-weight: 600;
+            background-color: #f1f3f6;
+            border: 1.5px solid var(--bel-border);
+            color: #475569;
+            height: 44px;
+            padding: 8px 14px;
+        }
+
+        .form-check {
+            min-height: 1.7rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .form-check-input {
+            width: 1.25em;
+            height: 1.25em;
+            margin-top: 0;
+            cursor: pointer;
+            border: 1.5px solid #94a3b8;
+        }
+
+        .form-check-input:checked {
+            background-color: var(--bel-purple);
+            border-color: var(--bel-purple);
+        }
+
+        .form-check-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+            cursor: pointer;
+        }
+
+        .form-switch .form-check-input {
+            width: 2.3em;
+            height: 1.25em;
+            border-radius: 2em;
+        }
+
+        /* 8. BOTTOM ACTION BAR (BEL STYLE) */
+        .bel-bottom-bar {
+            background-color: var(--bel-purple);
+            padding: 14px 22px;
+            border-radius: 0 0 6px 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: -1px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+
+        .bel-btn-save-next {
+            background-color: #ffffff;
+            color: var(--bel-purple);
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 11px 32px;
+            border-radius: 5px;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .bel-btn-save-next:hover {
+            background-color: #f8fafc;
+            color: var(--bel-purple-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .bel-btn-outline {
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid rgba(255,255,255,0.7);
+            border-radius: 5px;
+            padding: 10px 22px;
+            font-size: 13.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.2s ease;
+        }
+
+        .bel-btn-outline:hover {
+            background-color: rgba(255,255,255,0.15);
+            color: #ffffff;
+            border-color: #ffffff;
+        }
+
+        .bel-btn-submit {
+            background-color: #10b981;
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 11px 32px;
+            border-radius: 5px;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .bel-btn-submit:hover {
+            background-color: #059669;
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        /* Photo and Signature Controls */
+        .bel-photo-box {
+            width: 160px;
+            height: 200px;
+            border: 2px dashed #94a3b8;
+            border-radius: 6px;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+            margin: 0 auto 10px;
+            position: relative;
+        }
+
+        .bel-photo-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .bel-sig-canvas {
+            width: 100%;
+            height: 190px;
+            border: 2px dashed #94a3b8;
+            border-radius: 6px;
+            background: #ffffff;
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        .bonus-table th {
+            background-color: #1e1145;
+            color: white;
+            font-size: 13.5px;
+            padding: 11px 14px;
+        }
+
+        .bonus-table td {
+            font-size: 13.5px;
+            padding: 11px 14px;
+            vertical-align: middle;
+        }
+
+        .policy-clause-box {
+            background: #f8fafc;
+            border-left: 4px solid var(--bel-purple);
+            padding: 14px 18px;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 12px;
+        }
+
+        .policy-clause-box h6 {
+            color: var(--bel-purple);
+            font-weight: 700;
+            font-size: 14.5px;
+            margin-bottom: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- TOP CORPORATE BRANDING BANNER -->
+<header>
+    <div class="bel-top-logo-banner">
+        <div class="bel-logo-container">
+            <img src="assets/images/vk-logo.jpg" alt="VK LOGISTICS HUB - YOUR SHIPPING PARTNER" class="bel-brand-logo-img">
+        </div>
+    </div>
+
+    <!-- SOLID DEEP PURPLE NAV BAR -->
+    <div class="bel-top-nav-bar">
+        <div class="bel-nav-container">
+            <div class="bel-nav-title">
+                <i class="fas fa-file-signature me-2"></i> VK Logistics Hub Application Form
+            </div>
+            <div class="bel-nav-actions">
+                <div class="bel-lang-group">
+                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=bilingual<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'bilingual' ? 'active' : ''; ?>">Bilingual (ద్విభాష)</a>
+                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=en<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'en' ? 'active' : ''; ?>">English</a>
+                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=te<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'te' ? 'active' : ''; ?>">తెలుగు</a>
+                </div>
+
+                <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="bel-nav-btn" title="Download Form PDF">
+                    <i class="fas fa-file-pdf text-danger me-1"></i> PDF
+                </a>
+
+                <?php if ($is_embedded): ?>
+                    <button type="button" class="bel-logout-btn" onclick="if(window.parent && window.parent.switchView) window.parent.switchView('list');">
+                        <i class="fas fa-arrow-left me-1"></i> BACK TO LIST
+                    </button>
+                <?php else: ?>
+                    <a href="dashboard/management/joining_applications.php" class="bel-logout-btn">
+                        <i class="fas fa-sign-out-alt me-1"></i> LOGOUT
+                    </a>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- MAIN CONTAINER -->
+<div class="bel-content-wrapper">
+
+    <!-- 1. APPLICATION REFERENCE INFO STRIP -->
+    <div class="bel-info-strip">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="text-secondary fw-bold" style="font-size: 14.5px;">Application Ref:</span>
+            <span class="fw-bold font-monospace text-dark fs-5"><?php echo htmlspecialchars($application['application_no']); ?></span>
+        </div>
+        <div class="text-muted" style="font-size: 13.5px;">
+            <i class="far fa-clock me-1"></i> Last Updated: <?php echo !empty($application['updated_at']) ? date('d-M-Y H:i', strtotime($application['updated_at'])) . ' hrs' : date('d-M-Y'); ?>
+        </div>
+    </div>
+
+    <!-- Alert Messages -->
+    <?php if (!empty($success_message)): ?>
+        <div class="alert alert-success alert-dismissible fade show shadow-sm mb-3" role="alert">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-check-circle fs-4 me-3 text-success"></i>
+                <div>
+                    <h6 class="alert-heading fw-bold mb-1">Success!</h6>
+                    <p class="mb-0 small"><?php echo htmlspecialchars($success_message); ?></p>
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($errors)): ?>
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm mb-3" role="alert">
+            <div class="d-flex">
+                <i class="fas fa-exclamation-circle fs-4 me-3 text-danger mt-1"></i>
+                <div>
+                    <h6 class="alert-heading fw-bold mb-1">Please correct the following errors / దయచేసి క్రింది వివరాలను సరిచూసుకోండి:</h6>
+                    <ul class="mb-0 ps-3 small">
+                        <?php foreach ($errors as $err): ?>
+                            <li><?php echo htmlspecialchars($err); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!$is_editable): ?>
+        <div class="alert alert-info border-info mb-3">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Application Submitted:</strong> Your joining form is currently under HR review. Permitted details are displayed in read-only mode.
+        </div>
+    <?php endif; ?>
+
+    <!-- MAIN FORM WRAPPER -->
+    <form method="POST" enctype="multipart/form-data" id="joiningForm" novalidate>
+        <input type="hidden" name="action" id="formAction" value="save_draft">
+        <input type="hidden" name="is_embedded" value="<?php echo $is_embedded ? '1' : '0'; ?>">
+        <input type="hidden" name="signature_data" id="signatureData" value="">
+
+        <!-- 3. PRIMARY TABS BAR (BEL / DIGIALM STYLE) -->
+        <div class="bel-tabs-bar">
+            <div class="bel-tab-item active" id="tabNav-1" onclick="goToTab(1)">
+                PERSONAL DETAILS
+            </div>
+            <div class="bel-tab-item" id="tabNav-2" onclick="goToTab(2)">
+                COMMUNICATION DETAILS
+            </div>
+            <div class="bel-tab-item" id="tabNav-3" onclick="goToTab(3)">
+                QUALIFICATION & EXPERIENCE
+            </div>
+            <div class="bel-tab-item" id="tabNav-4" onclick="goToTab(4)">
+                TERMS & PICKUP POLICY
+            </div>
+            <div class="bel-tab-item" id="tabNav-5" onclick="goToTab(5)">
+                DOCUMENT AND DECLARATION
+            </div>
+        </div>
+
+        <!-- ================= TAB 1: PERSONAL DETAILS ================= -->
+        <div class="tab-pane-content" id="tabContent-1">
+            <!-- Section 1.1: Post Applied Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPostApplied', 'btnTogglePost')">
+                    <span class="bel-section-title">Post Applied Details</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePost">[-]</button>
+                </div>
+                <div id="secPostApplied" class="bel-section-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Application Number: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" value="<?php echo htmlspecialchars($application['application_no']); ?>" readonly>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('designation', $lang); ?>: <span class="text-danger">*</span></label>
+                            <select class="form-select" name="designation" id="designationSelect" onchange="checkRoleRequirements(this.value)" required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                <option value="">-- Select Post / Role --</option>
+                                <?php
+                                $roles = [
+                                    'Pickup Associate' => 'Pickup Associate (పికప్ అసోసియేట్)',
+                                    'Delivery Associate' => 'Delivery Associate (డెలివరీ అసోసియేట్)',
+                                    'Operations Assistant' => 'Operations Assistant (ఆపరేషన్స్ అసిస్టెంట్)',
+                                    'Warehouse Executive' => 'Warehouse Executive (గిడ్డంగి ఎగ్జిక్యూటివ్)',
+                                    'Hub Incharge' => 'Hub Incharge (హబ్ ఇన్‌ఛార్జ్)',
+                                    'Customer Support Executive' => 'Customer Support Executive (కస్టమర్ సపోర్ట్)',
+                                    'Accounts Executive' => 'Accounts Executive (అకౌంట్స్ ఎగ్జిక్యూటివ్)',
+                                    'HR Executive' => 'HR Executive (హెచ్‌ఆర్ ఎగ్జిక్యూటివ్)'
+                                ];
+                                $curr_role = $personal['designation'] ?? '';
+                                foreach ($roles as $r_val => $r_lbl):
+                                ?>
+                                    <option value="<?php echo $r_val; ?>" <?php echo $curr_role === $r_val ? 'selected' : ''; ?>><?php echo $r_lbl; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('department', $lang); ?>: <span class="text-danger">*</span></label>
+                            <select class="form-select" name="department_id" required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                <option value="">-- Select Department --</option>
+                                <?php foreach ($departments as $dept): ?>
+                                    <option value="<?php echo $dept['id']; ?>" <?php echo ($personal['department_id'] ?? '') == $dept['id'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($dept['name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('employee_type', $lang); ?>: <span class="text-danger">*</span></label>
+                            <div class="d-flex gap-3 pt-1">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="employee_type" id="type_new" value="new_joiner" 
+                                        <?php echo ($application['employee_type'] ?? 'new_joiner') === 'new_joiner' ? 'checked' : ''; ?> 
+                                        onchange="toggleEmployeeIdField()" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                    <label class="form-check-label" for="type_new">
+                                        <?php echo lbl('new_joiner', $lang); ?>
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="employee_type" id="type_existing" value="existing_employee" 
+                                        <?php echo ($application['employee_type'] ?? '') === 'existing_employee' ? 'checked' : ''; ?> 
+                                        onchange="toggleEmployeeIdField()" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                    <label class="form-check-label" for="type_existing">
+                                        <?php echo lbl('existing_employee', $lang); ?>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('date_of_joining', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" name="joining_date" required value="<?php echo htmlspecialchars($personal['joining_date'] ?? date('Y-m-d')); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Nationality: <span class="text-danger">*</span></label>
+                            <div class="pt-1">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" checked disabled>
+                                    <label class="form-check-label">A citizen of India (భారతీయ పౌరుడు)</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4" id="empIdContainer" style="<?php echo ($application['employee_type'] ?? 'new_joiner') === 'new_joiner' ? 'display:none;' : ''; ?>">
+                            <label class="form-label"><?php echo lbl('employee_id', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="employee_id" value="<?php echo htmlspecialchars($personal['employee_id'] ?? ''); ?>" placeholder="e.g. VK-EMP-1024" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            <div class="small text-muted" style="font-size:13px;"><?php echo lbl('employee_id_auto_note', $lang); ?></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 1.2: Personal Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPersonalDetails', 'btnTogglePersonal')">
+                    <span class="bel-section-title">Personal Details</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePersonal">[-]</button>
+                </div>
+                <div id="secPersonalDetails" class="bel-section-body">
+                    <div class="row g-3">
+                        <!-- Passport Photo -->
+                        <div class="col-md-3 text-center border-end-md">
+                            <label class="form-label"><?php echo lbl('passport_photo', $lang); ?>: <span class="text-danger">*</span></label>
+                            <div class="bel-photo-box" onclick="document.getElementById('passport_photo').click()">
+                                <?php if (!empty($personal['photo_path']) && file_exists(__DIR__ . '/' . $personal['photo_path'])): ?>
+                                    <img src="<?php echo htmlspecialchars($personal['photo_path']); ?>" id="photo_preview" alt="Passport Photo">
+                                <?php else: ?>
+                                    <img src="assets/images/avatar-placeholder.png" id="photo_preview" style="display:none;" alt="Preview">
+                                    <div id="photo_placeholder" class="text-center p-2 text-muted">
+                                        <i class="fas fa-camera fs-2 mb-2 d-block"></i>
+                                        <span style="font-size: 13.5px; font-weight: 600;">Upload Photo<br>ఫోటో అప్‌లోడ్</span>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($is_editable): ?>
+                                <input type="file" class="d-none" id="passport_photo" name="passport_photo" accept="image/*" onchange="previewPhoto(this)">
+                                <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('passport_photo').click()">
+                                    <i class="fas fa-upload me-1"></i> Choose Photo
+                                </button>
+                            <?php endif; ?>
+                            <div class="text-muted mt-2" style="font-size: 12.5px;">Max size 5MB (JPG/PNG)</div>
+                        </div>
+
+                        <!-- Personal fields -->
+                        <div class="col-md-9">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="full_name" required value="<?php echo htmlspecialchars($personal['full_name'] ?? ''); ?>" placeholder="As per Aadhaar / Official ID" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label"><?php echo lbl('father_name', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="father_name" required value="<?php echo htmlspecialchars($personal['father_name'] ?? ''); ?>" placeholder="Father's Full Name" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label"><?php echo lbl('dob', $lang); ?> (DD/MM/YYYY): <span class="text-danger">*</span></label>
+                                    <input type="date" class="form-control" name="dob" required value="<?php echo htmlspecialchars($personal['dob'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label"><?php echo lbl('gender', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <select class="form-select" name="gender" required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                        <option value="male" <?php echo ($personal['gender'] ?? 'male') === 'male' ? 'selected' : ''; ?>><?php echo lbl('gender_male', $lang); ?></option>
+                                        <option value="female" <?php echo ($personal['gender'] ?? '') === 'female' ? 'selected' : ''; ?>><?php echo lbl('gender_female', $lang); ?></option>
+                                        <option value="other" <?php echo ($personal['gender'] ?? '') === 'other' ? 'selected' : ''; ?>><?php echo lbl('gender_other', $lang); ?></option>
+                                    </select>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label"><?php echo lbl('blood_group', $lang); ?>:</label>
+                                    <select class="form-select" name="blood_group" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                        <option value="">-- Select Blood Group --</option>
+                                        <?php foreach (['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'] as $bg): ?>
+                                            <option value="<?php echo $bg; ?>" <?php echo ($personal['blood_group'] ?? '') === $bg ? 'selected' : ''; ?>><?php echo $bg; ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('previous_experience', $lang); ?>:</label>
+                                    <input type="text" class="form-control" name="previous_work_experience" value="<?php echo htmlspecialchars($personal['previous_work_experience'] ?? ''); ?>" placeholder="e.g. 2 years experience in courier/logistics operations" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 1.3: Identity & Bank Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secIdentityBank', 'btnToggleIdBank')">
+                    <span class="bel-section-title">Identity & Bank Details</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleIdBank">[-]</button>
+                </div>
+                <div id="secIdentityBank" class="bel-section-body">
+                    <div class="bel-note-dashed">
+                        <strong>Privacy & Statutory Protection:</strong> Aadhaar information is collected strictly as required by law for statutory compliance and payroll administration. Sensitive identification numbers are stored securely with masked display (e.g., XXXX-XXXX-1234).
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label"><?php echo lbl('aadhaar_number', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control font-monospace" name="aadhaar_number" id="aadhaar_input" required 
+                                placeholder="XXXX-XXXX-1234" maxlength="14" 
+                                value="<?php echo htmlspecialchars($identity['aadhaar_masked'] ?? ''); ?>" 
+                                oninput="formatAadhaar(this)" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            <div class="small text-muted mt-1" style="font-size:13px;"><?php echo lbl('aadhaar_note', $lang); ?></div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('other_id_proof', $lang); ?>:</label>
+                            <select class="form-select" name="other_id_type" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                <option value="">-- Select Alternate ID --</option>
+                                <option value="PAN Card" <?php echo ($identity['other_id_type'] ?? '') === 'PAN Card' ? 'selected' : ''; ?>>PAN Card</option>
+                                <option value="Driving License" <?php echo ($identity['other_id_type'] ?? '') === 'Driving License' ? 'selected' : ''; ?>>Driving License</option>
+                                <option value="Voter ID" <?php echo ($identity['other_id_type'] ?? '') === 'Voter ID' ? 'selected' : ''; ?>>Voter ID</option>
+                                <option value="Passport" <?php echo ($identity['other_id_type'] ?? '') === 'Passport' ? 'selected' : ''; ?>>Passport</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">ID Number / ఐడీ సంఖ్య:</label>
+                            <input type="text" class="form-control" name="other_id_number" value="<?php echo htmlspecialchars($identity['other_id_number'] ?? ''); ?>" placeholder="e.g. ABCDE1234F" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <label class="form-label"><?php echo lbl('documents_submitted', $lang); ?>:</label>
+                            <div class="row g-2">
+                                <?php
+                                $curr_docs = explode(', ', $identity['documents_submitted'] ?? '');
+                                $check_list = [
+                                    'Aadhaar Card' => 'Aadhaar Card (ఆధార్ కార్డు)',
+                                    'PAN Card' => 'PAN Card (పాన్ కార్డు)',
+                                    'Driving License' => 'Driving License (డ్రైవింగ్ లైసెన్స్ - For Delivery/Pickup)',
+                                    'Bank Passbook / Cheque' => 'Bank Passbook / Cancelled Cheque (బ్యాంక్ పాస్‌బుక్)',
+                                    'Educational Certificate' => '10th / Inter / Degree Certificate (విద్యార్హత పత్రాలు)',
+                                    'Previous Relieving Letter' => 'Previous Relieving / Experience Letter (రిలీవింగ్ లెటర్)'
+                                ];
+                                foreach ($check_list as $c_val => $c_lbl):
+                                    $is_chk = in_array($c_val, $curr_docs);
+                                ?>
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="docs_submitted[]" value="<?php echo $c_val; ?>" id="chk_<?php echo md5($c_val); ?>" <?php echo $is_chk ? 'checked' : ''; ?> <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                            <label class="form-check-label" for="chk_<?php echo md5($c_val); ?>">
+                                                <?php echo $c_lbl; ?>
+                                            </label>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bank Account Info (Matching Digialm Image 3) -->
+                    <div class="mt-4 pt-3 border-top">
+                        <div class="bel-note-red mb-3">
+                            <strong>Note:</strong> Kindly provide the details for the bank account in which payroll and statutory salary deposits are to be credited.
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Name of Account Holder: <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="bank_holder_name" value="<?php echo htmlspecialchars($personal['full_name'] ?? ''); ?>" placeholder="Name as in Bank Passbook" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Bank Name: <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="bank_name" placeholder="e.g. State Bank of India, HDFC" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Bank Branch: <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="bank_branch" placeholder="Branch Name" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Bank Account Number: <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control font-monospace" name="bank_account_no" placeholder="Bank Account Number" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Bank IFSC Code: <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control font-monospace text-uppercase" name="bank_ifsc" placeholder="e.g. SBIN0012345" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 1 Bottom Action Bar -->
+            <div class="bel-bottom-bar">
+                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                    <i class="fas fa-save me-1"></i> SAVE DRAFT
+                </button>
+                <button type="button" class="bel-btn-save-next" onclick="goToTab(2)">
+                    SAVE & NEXT <i class="fas fa-chevron-right ms-1"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ================= TAB 2: COMMUNICATION DETAILS ================= -->
+        <div class="tab-pane-content" id="tabContent-2" style="display: none;">
+            <!-- Section 2.1: Contact Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secContactDetails', 'btnToggleContact')">
+                    <span class="bel-section-title">Contact Details</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleContact">[-]</button>
+                </div>
+                <div id="secContactDetails" class="bel-section-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text">91</span>
+                                <input type="tel" class="form-control" name="mobile" required maxlength="10" value="<?php echo htmlspecialchars($personal['mobile'] ?? ''); ?>" placeholder="10-digit mobile" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('alternate_mobile', $lang); ?>:</label>
+                            <div class="input-group">
+                                <span class="input-group-text">91</span>
+                                <input type="tel" class="form-control" name="alternate_mobile" maxlength="10" value="<?php echo htmlspecialchars($personal['alternate_mobile'] ?? ''); ?>" placeholder="Alternate mobile" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('email_address', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" name="email" required value="<?php echo htmlspecialchars($personal['email'] ?? ''); ?>" placeholder="candidate@example.com" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2.2: Present Address Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPresentAddress', 'btnTogglePresAddr')">
+                    <span class="bel-section-title">Present Address Details (ప్రస్తుత చిరునామా)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePresAddr">[-]</button>
+                </div>
+                <div id="secPresentAddress" class="bel-section-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('house_flat_no', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_house" name="present_house_flat_no" required value="<?php echo htmlspecialchars($present_address['house_flat_no'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('street_area', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_street" name="present_street_area" required value="<?php echo htmlspecialchars($present_address['street_area'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('village_town', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_village" name="present_village_town" required value="<?php echo htmlspecialchars($present_address['village_town'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('mandal', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_mandal" name="present_mandal" required value="<?php echo htmlspecialchars($present_address['mandal'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('district', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_district" name="present_district" required value="<?php echo htmlspecialchars($present_address['district'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('state', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_state" name="present_state" required value="<?php echo htmlspecialchars($present_address['state'] ?? 'Telangana'); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('pincode', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="p_pincode" name="present_pincode" required maxlength="6" value="<?php echo htmlspecialchars($present_address['pincode'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2.3: Permanent Address Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPermanentAddress', 'btnTogglePermAddr')">
+                    <span class="bel-section-title">Permanent Address Details (శాశ్వత చిరునామా)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePermAddr">[-]</button>
+                </div>
+                <div id="secPermanentAddress" class="bel-section-body">
+                    <div class="d-flex align-items-center justify-content-between mb-3 p-2 bg-light rounded border">
+                        <span class="fw-bold text-dark"><?php echo lbl('same_as_present', $lang); ?></span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="sameAsPresentToggle" name="same_as_present" 
+                                <?php echo (!empty($permanent_address['is_same_as_present']) || empty($permanent_address)) ? 'checked' : ''; ?> 
+                                onchange="toggleSameAddress(this.checked)" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        </div>
+                    </div>
+
+                    <div id="permanentAddressContainer" class="row g-3" style="<?php echo (!empty($permanent_address['is_same_as_present']) || empty($permanent_address)) ? 'display:none;' : ''; ?>">
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('house_flat_no', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_house" name="perm_house_flat_no" value="<?php echo htmlspecialchars($permanent_address['house_flat_no'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('street_area', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_street" name="perm_street_area" value="<?php echo htmlspecialchars($permanent_address['street_area'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('village_town', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_village" name="perm_village_town" value="<?php echo htmlspecialchars($permanent_address['village_town'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('mandal', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_mandal" name="perm_mandal" value="<?php echo htmlspecialchars($permanent_address['mandal'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('district', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_district" name="perm_district" value="<?php echo htmlspecialchars($permanent_address['district'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('state', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_state" name="perm_state" value="<?php echo htmlspecialchars($permanent_address['state'] ?? 'Telangana'); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label"><?php echo lbl('pincode', $lang); ?>:</label>
+                            <input type="text" class="form-control" id="perm_pincode" name="perm_pincode" maxlength="6" value="<?php echo htmlspecialchars($permanent_address['pincode'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2.4: Emergency Contact Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secEmergencyContact', 'btnToggleEmg')">
+                    <span class="bel-section-title">Emergency Contact Details (అత్యవసర సంప్రదింపు వివరాలు)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleEmg">[-]</button>
+                </div>
+                <div id="secEmergencyContact" class="bel-section-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="emergency_name" required value="<?php echo htmlspecialchars($emergency['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('relationship', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="emergency_rel" required value="<?php echo htmlspecialchars($emergency['relationship'] ?? ''); ?>" placeholder="e.g. Father, Spouse, Brother" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text">91</span>
+                                <input type="tel" class="form-control" name="emergency_mobile" required maxlength="10" value="<?php echo htmlspecialchars($emergency['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label"><?php echo lbl('alternate_mobile', $lang); ?>:</label>
+                            <div class="input-group">
+                                <span class="input-group-text">91</span>
+                                <input type="tel" class="form-control" name="emergency_alt_mobile" maxlength="10" value="<?php echo htmlspecialchars($emergency['alternate_mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label"><?php echo lbl('address', $lang); ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="emergency_address" required value="<?php echo htmlspecialchars($emergency['address'] ?? ''); ?>" placeholder="Complete postal address" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2 Bottom Action Bar -->
+            <div class="bel-bottom-bar">
+                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                    <i class="fas fa-save me-1"></i> SAVE DRAFT
+                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="goToTab(1)">
+                        <i class="fas fa-chevron-left me-1"></i> PREVIOUS
+                    </button>
+                    <button type="button" class="bel-btn-save-next" onclick="goToTab(3)">
+                        SAVE & NEXT <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB 3: QUALIFICATION & EXPERIENCE ================= -->
+        <div class="tab-pane-content" id="tabContent-3" style="display: none;">
+            <!-- Section 3.1: Previous Employment Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPrevEmp', 'btnTogglePrevEmp')">
+                    <span class="bel-section-title">Previous Employment Details (మునుపటి ఉద్యోగ వివరాలు)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePrevEmp">[-]</button>
+                </div>
+                <div id="secPrevEmp" class="bel-section-body">
+                    <div class="form-check mb-3 p-2 bg-light rounded border">
+                        <input class="form-check-input ms-1 me-2" type="checkbox" id="fresherToggle" onchange="toggleFresher(this.checked)">
+                        <label class="form-check-label fw-bold" for="fresherToggle">
+                            I am a fresher / no prior work experience (నేను ఫ్రెషర్ / ఎటువంటి మునుపటి పని అనుభవం లేదు)
+                        </label>
+                    </div>
+
+                    <div id="prevEmpContainer" class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label"><?php echo lbl('prev_employer', $lang); ?>:</label>
+                            <input type="text" class="form-control" name="prev_employer" id="prev_employer" value="<?php echo htmlspecialchars($prev_emp['employer_name'] ?? ''); ?>" placeholder="Company / Organization Name" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label"><?php echo lbl('prev_designation', $lang); ?>:</label>
+                            <input type="text" class="form-control" name="prev_desig" id="prev_desig" value="<?php echo htmlspecialchars($prev_emp['designation'] ?? ''); ?>" placeholder="Job title / role" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label"><?php echo lbl('prev_employer_phone', $lang); ?>:</label>
+                            <input type="tel" class="form-control" name="prev_phone" id="prev_phone" value="<?php echo htmlspecialchars($prev_emp['employer_phone'] ?? ''); ?>" placeholder="HR or Manager Phone" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label"><?php echo lbl('reason_for_leaving', $lang); ?>:</label>
+                            <input type="text" class="form-control" name="prev_reason" id="prev_reason" value="<?php echo htmlspecialchars($prev_emp['reason_for_leaving'] ?? ''); ?>" placeholder="e.g. Career growth, Relocation" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3.2: References Details -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secReferences', 'btnToggleRefs')">
+                    <span class="bel-section-title">References Details (రిఫరెన్సులు - కనీసం ఇద్దరు వ్యక్తులు)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleRefs">[-]</button>
+                </div>
+                <div id="secReferences" class="bel-section-body">
+                    <div class="row g-4">
+                        <!-- Ref 1 -->
+                        <div class="col-md-6 border-end-md">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_1', $lang); ?></h6>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="ref1_name" required value="<?php echo htmlspecialchars($ref1['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="ref1_rel" required value="<?php echo htmlspecialchars($ref1['relationship_how_known'] ?? ''); ?>" placeholder="e.g. Neighbor, Colleague, Village elder" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">91</span>
+                                        <input type="tel" class="form-control" name="ref1_mobile" required maxlength="10" value="<?php echo htmlspecialchars($ref1['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('address', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <textarea class="form-control" rows="2" name="ref1_address" required <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref1['address'] ?? ''); ?></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ref 2 -->
+                        <div class="col-md-6">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_2', $lang); ?></h6>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="ref2_name" required value="<?php echo htmlspecialchars($ref2['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="ref2_rel" required value="<?php echo htmlspecialchars($ref2['relationship_how_known'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">91</span>
+                                        <input type="tel" class="form-control" name="ref2_mobile" required maxlength="10" value="<?php echo htmlspecialchars($ref2['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label"><?php echo lbl('address', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <textarea class="form-control" rows="2" name="ref2_address" required <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref2['address'] ?? ''); ?></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 3 Bottom Action Bar -->
+            <div class="bel-bottom-bar">
+                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                    <i class="fas fa-save me-1"></i> SAVE DRAFT
+                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="goToTab(2)">
+                        <i class="fas fa-chevron-left me-1"></i> PREVIOUS
+                    </button>
+                    <button type="button" class="bel-btn-save-next" onclick="goToTab(4)">
+                        SAVE & NEXT <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB 4: TERMS & PICKUP POLICY ================= -->
+        <div class="tab-pane-content" id="tabContent-4" style="display: none;">
+            <!-- Section 4.1: General Employment Terms & Conditions -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secEmpTerms', 'btnToggleTerms')">
+                    <span class="bel-section-title">Employment Terms & Conditions (ఉపాధి నిబంధనలు మరియు షరతులు)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleTerms">[-]</button>
+                </div>
+                <div id="secEmpTerms" class="bel-section-body">
+                    <div class="policy-clause-box">
+                        <h6><?php echo lbl('terms_clause1_title', $lang); ?></h6>
+                        <div class="text-secondary small mb-1"><?php echo JoiningI18n::t('terms_clause1_text1', 'en'); ?></div>
+                        <div class="te-text text-dark small" style="background:#f1f5f9; padding:4px 8px; border-radius:3px;"><?php echo JoiningI18n::t('terms_clause1_text1', 'te'); ?></div>
+                    </div>
+
+                    <div class="policy-clause-box">
+                        <h6><?php echo lbl('terms_clause2_title', $lang); ?></h6>
+                        <div class="text-secondary small mb-1"><?php echo JoiningI18n::t('terms_clause2_text1', 'en'); ?></div>
+                        <div class="te-text text-dark small" style="background:#f1f5f9; padding:4px 8px; border-radius:3px;"><?php echo JoiningI18n::t('terms_clause2_text1', 'te'); ?></div>
+                    </div>
+
+                    <div class="policy-clause-box">
+                        <h6><?php echo lbl('terms_clause3_title', $lang); ?></h6>
+                        <div class="text-secondary small mb-1"><?php echo JoiningI18n::t('terms_clause3_text1', 'en'); ?></div>
+                        <div class="te-text text-dark small" style="background:#f1f5f9; padding:4px 8px; border-radius:3px;"><?php echo JoiningI18n::t('terms_clause3_text1', 'te'); ?></div>
+                    </div>
+
+                    <div class="policy-clause-box">
+                        <h6><?php echo lbl('terms_clause4_title', $lang); ?></h6>
+                        <div class="text-secondary small mb-1"><?php echo JoiningI18n::t('terms_clause4_text1', 'en'); ?></div>
+                        <div class="te-text text-dark small" style="background:#f1f5f9; padding:4px 8px; border-radius:3px;"><?php echo JoiningI18n::t('terms_clause4_text1', 'te'); ?></div>
+                    </div>
+
+                    <div class="mt-3 p-3 bg-light rounded border">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="terms_acknowledged" id="termsAck" value="1" 
+                                <?php echo (!empty($declaration['terms_acknowledged']) || !empty($_POST['terms_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                            <label class="form-check-label fw-bold text-dark" for="termsAck">
+                                I have read, understood, and accept all the VK Logistics Hub Employment Terms & Conditions.<br>
+                                <span class="text-muted fw-normal te-text">నేను పై ఉపాధి నిబంధనలు మరియు షరతులన్నింటినీ చదివాను, అర్థం చేసుకున్నాను మరియు అంగీకరిస్తున్నాను.</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 4.2: Pickup Associate Leave & Incentive Policy -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secPickupPolicy', 'btnTogglePolicy')">
+                    <span class="bel-section-title">Pickup Associate Leave & Incentive Policy (పికప్ అసోసియేట్ లీవ్ & ఇన్సెంటివ్ పాలసీ)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnTogglePolicy">[-]</button>
+                </div>
+                <div id="secPickupPolicy" class="bel-section-body">
+                    <div class="bel-note-dashed mb-3">
+                        <strong>Notice:</strong> This policy governs paid annual leave, 12 designated public festival holidays, daily pickup quotas, and verified pickup bonuses for associates.
+                    </div>
+
+                    <!-- 12 Public Holidays -->
+                    <h6 class="fw-bold text-dark mb-2">12 Designated Paid Festival Holidays:</h6>
+                    <div class="row g-2 mb-3">
+                        <?php
+                        $holidays_en = JoiningI18n::$translations['en']['holiday_list'];
+                        $holidays_te = JoiningI18n::$translations['te']['holiday_list'];
+                        for ($i = 0; $i < count($holidays_en); $i++):
+                        ?>
+                            <div class="col-md-6 col-lg-4">
+                                <div class="p-2 border rounded bg-light d-flex align-items-center">
+                                    <span class="badge bg-secondary rounded-pill me-2"><?php echo $i + 1; ?></span>
+                                    <div style="font-size: 13.5px; line-height: 1.4;">
+                                        <div class="fw-bold text-dark"><?php echo htmlspecialchars($holidays_en[$i]); ?></div>
+                                        <div class="text-muted te-text"><?php echo htmlspecialchars($holidays_te[$i]); ?></div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endfor; ?>
+                    </div>
+
+                    <!-- Targets Table -->
+                    <h6 class="fw-bold text-dark mb-2">Daily Pickup Targets and Bonus Examples:</h6>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-bordered bonus-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Daily Target</th>
+                                    <th>Completed Pickups</th>
+                                    <th>Bonus Pickups</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="fw-bold">3 Pickups</td>
+                                    <td>3 Completed</td>
+                                    <td><span class="badge bg-secondary">0 (Daily Target Met)</span></td>
+                                </tr>
+                                <tr class="table-success">
+                                    <td class="fw-bold">3 Pickups</td>
+                                    <td>4 Completed</td>
+                                    <td><span class="badge bg-success">+1 Bonus Pickup</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">4 Pickups</td>
+                                    <td>4 Completed</td>
+                                    <td><span class="badge bg-secondary">0 (Daily Target Met)</span></td>
+                                </tr>
+                                <tr class="table-success">
+                                    <td class="fw-bold">4 Pickups</td>
+                                    <td>6 Completed</td>
+                                    <td><span class="badge bg-success">+2 Bonus Pickups</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Policy Checkbox -->
+                    <div class="p-3 bg-light rounded border">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="pickup_policy_acknowledged" id="pickupPolicyAck" value="1" 
+                                <?php echo (!empty($declaration['pickup_policy_acknowledged']) || !empty($_POST['pickup_policy_acknowledged'])) ? 'checked' : ''; ?> <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                            <label class="form-check-label fw-bold text-dark" for="pickupPolicyAck">
+                                I acknowledge receipt of the Associate Leave & Pickup Incentive Policy and agree to abide by all its provisions.<br>
+                                <span class="text-muted fw-normal te-text">నేను అసోసియేట్ సెలవు మరియు పికప్ ప్రోత్సాహక విధానాన్ని అందుకున్నానని మరియు దాని నిబంధనలన్నింటికీ కట్టుబడి ఉంటానని ధృవీకరిస్తున్నాను.</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 4 Bottom Action Bar -->
+            <div class="bel-bottom-bar">
+                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                    <i class="fas fa-save me-1"></i> SAVE DRAFT
+                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="goToTab(3)">
+                        <i class="fas fa-chevron-left me-1"></i> PREVIOUS
+                    </button>
+                    <button type="button" class="bel-btn-save-next" onclick="goToTab(5)">
+                        SAVE & NEXT <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB 5: DOCUMENT AND DECLARATION ================= -->
+        <div class="tab-pane-content" id="tabContent-5" style="display: none;">
+            <!-- Section 5.1: Upload Documents -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secUploadDocs', 'btnToggleDocs')">
+                    <span class="bel-section-title">Upload Identity Documents (పత్రాలను అప్‌లోడ్ చేయండి)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleDocs">[-]</button>
+                </div>
+                <div id="secUploadDocs" class="bel-section-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">1. Aadhaar Card (Front & Back / PDF): <span class="text-danger">*</span></label>
+                            <input type="file" class="form-control" name="aadhaar_doc" accept=".pdf,.jpg,.jpeg,.png" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">2. PAN Card:</label>
+                            <input type="file" class="form-control" name="pan_doc" accept=".pdf,.jpg,.jpeg,.png" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">3. Driving License (Mandatory for Pickup / Delivery Associates):</label>
+                            <input type="file" class="form-control" name="dl_doc" accept=".pdf,.jpg,.jpeg,.png" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">4. Bank Passbook / Cancelled Cheque:</label>
+                            <input type="file" class="form-control" name="bank_doc" accept=".pdf,.jpg,.jpeg,.png" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        </div>
+                    </div>
+
+                    <?php if (!empty($uploaded_docs)): ?>
+                        <div class="mt-3 p-3 bg-light rounded border">
+                            <div class="small fw-bold text-muted mb-2"><i class="fas fa-paperclip me-1"></i> Uploaded Documents:</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                <?php foreach ($uploaded_docs as $ud): ?>
+                                    <a href="<?php echo htmlspecialchars($ud['stored_file_path']); ?>" target="_blank" class="badge bg-white text-dark border p-2 text-decoration-none">
+                                        <i class="fas fa-file-pdf text-danger me-1"></i> <?php echo htmlspecialchars($ud['document_type']); ?> (<?php echo htmlspecialchars($ud['original_file_name']); ?>)
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Section 5.2: Employee Declaration -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secDeclaration', 'btnToggleDecl')">
+                    <span class="bel-section-title">Employee Declaration (ఉద్యోగి డిక్లరేషన్)</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleDecl">[-]</button>
+                </div>
+                <div id="secDeclaration" class="bel-section-body">
+                    <div class="p-3 bg-light rounded border mb-3">
+                        <div class="mb-2">
+                            <div class="fw-bold text-dark small"><?php echo JoiningI18n::t('decl_point1', 'en'); ?></div>
+                            <div class="text-muted small te-text"><?php echo JoiningI18n::t('decl_point1', 'te'); ?></div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="fw-bold text-dark small"><?php echo JoiningI18n::t('decl_point2', 'en'); ?></div>
+                            <div class="text-muted small te-text"><?php echo JoiningI18n::t('decl_point2', 'te'); ?></div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="fw-bold text-dark small"><?php echo JoiningI18n::t('decl_point3', 'en'); ?></div>
+                            <div class="text-muted small te-text"><?php echo JoiningI18n::t('decl_point3', 'te'); ?></div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="fw-bold text-dark small"><?php echo JoiningI18n::t('decl_point4', 'en'); ?></div>
+                            <div class="text-muted small te-text"><?php echo JoiningI18n::t('decl_point4', 'te'); ?></div>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark small"><?php echo JoiningI18n::t('decl_point5', 'en'); ?></div>
+                            <div class="text-muted small te-text"><?php echo JoiningI18n::t('decl_point5', 'te'); ?></div>
+                        </div>
+                    </div>
+
+                    <!-- Mandatory Data Consent Checkbox -->
+                    <div class="form-check p-3 bg-light border rounded">
+                        <input class="form-check-input" type="checkbox" name="data_consent_acknowledged" id="dataConsentAck" value="1" 
+                            <?php echo (!empty($declaration['data_consent_acknowledged']) || !empty($_POST['data_consent_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                        <label class="form-check-label fw-bold text-dark" for="dataConsentAck">
+                            I confirm that all information provided above is true and accurate. I have read, understood, and accept all the terms, policies and declarations.<br>
+                            <span class="text-muted fw-normal te-text">పైన అందించిన సమాచారమంతా సత్యమైనదని మరియు ఖచ్చితమైనదని ధృవీకరిస్తున్నాను. నిబంధనలు మరియు పాలసీలను అంగీకరిస్తున్నాను.</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 5.3: Digital Signature & Impression -->
+            <div class="bel-section-card">
+                <div class="bel-section-head" onclick="toggleCollapse('secSignature', 'btnToggleSig')">
+                    <span class="bel-section-title">Digital Signature & Impression</span>
+                    <button type="button" class="bel-toggle-btn" id="btnToggleSig">[-]</button>
+                </div>
+                <div id="secSignature" class="bel-section-body">
+                    <div class="row g-4">
+                        <div class="col-md-7">
+                            <label class="form-label">
+                                <?php echo lbl('signature_of_employee', $lang); ?>: <span class="text-danger">*</span>
+                                <small class="text-muted fw-normal">(Draw inside the signature box with mouse or finger)</small>
+                            </label>
+
+                            <?php if (!empty($signature['signature_image_path']) && file_exists(__DIR__ . '/' . $signature['signature_image_path'])): ?>
+                                <div class="border rounded p-2 text-center bg-white mb-2">
+                                    <img src="<?php echo htmlspecialchars($signature['signature_image_path']); ?>" alt="Recorded Signature" style="max-height: 100px;">
+                                    <div class="text-muted small mt-1" style="font-size:12.5px;">Recorded on <?php echo date('d-M-Y H:i', strtotime($signature['signed_at'])); ?></div>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if ($is_editable): ?>
+                                <div class="position-relative">
+                                    <canvas id="signaturePad" class="bel-sig-canvas"></canvas>
+                                    <button type="button" class="btn btn-outline-danger btn-sm position-absolute top-0 end-0 m-2" onclick="clearSignature()">
+                                        <i class="fas fa-eraser me-1"></i> Clear
+                                    </button>
+                                </div>
+                                <div class="text-muted mt-2" style="font-size:13px;">Your digital signature is legally binding under the Information Technology Act.</div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="col-md-5">
+                            <label class="form-label"><?php echo lbl('left_thumb_impression', $lang); ?>: <span class="badge bg-secondary">Optional</span></label>
+                            <div class="p-3 border rounded bg-light text-center">
+                                <?php if (!empty($signature['thumb_impression_path']) && file_exists(__DIR__ . '/' . $signature['thumb_impression_path'])): ?>
+                                    <img src="<?php echo htmlspecialchars($signature['thumb_impression_path']); ?>" alt="Thumb Impression" style="max-height: 90px;" class="mb-2 rounded border">
+                                <?php else: ?>
+                                    <i class="fas fa-fingerprint fs-1 text-muted mb-2 d-block"></i>
+                                <?php endif; ?>
+                                
+                                <?php if ($is_editable): ?>
+                                    <input type="file" class="form-control mt-2" name="thumb_impression" accept="image/*">
+                                    <div class="text-muted mt-2" style="font-size: 13px;">Upload photo or scan of left thumb ink impression</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 5 Bottom Action Bar -->
+            <div class="bel-bottom-bar">
+                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                    <i class="fas fa-save me-1"></i> SAVE DRAFT
+                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="goToTab(4)">
+                        <i class="fas fa-chevron-left me-1"></i> PREVIOUS
+                    </button>
+                    <?php if ($is_editable): ?>
+                        <button type="button" class="bel-btn-submit" onclick="submitApplication()">
+                            <i class="fas fa-check-circle me-1"></i> SUBMIT APPLICATION
+                        </button>
+                    <?php else: ?>
+                        <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="bel-btn-submit text-decoration-none">
+                            <i class="fas fa-download me-1"></i> DOWNLOAD PDF
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+    </form>
+
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let currentTab = 1;
+    const totalTabs = 5;
+
+    // Send dynamic height to parent window so iframe expands without inside scrollbar
+    function notifyParentOfResize() {
+        if (window.parent && window.parent !== window) {
+            const body = document.body;
+            const html = document.documentElement;
+            const h = Math.max(
+                body ? body.scrollHeight : 0,
+                body ? body.offsetHeight : 0,
+                html ? html.clientHeight : 0,
+                html ? html.scrollHeight : 0,
+                html ? html.offsetHeight : 0
+            );
+            if (h > 200) {
+                window.parent.postMessage({ type: 'vk_resize_joining_iframe', height: h + 40 }, '*');
+            }
+        }
+    }
+
+    function goToTab(tabNum) {
+        for (let i = 1; i <= totalTabs; i++) {
+            const pane = document.getElementById('tabContent-' + i);
+            const nav = document.getElementById('tabNav-' + i);
+            if (pane) pane.style.display = 'none';
+            if (nav) nav.classList.remove('active');
+        }
+
+        const activePane = document.getElementById('tabContent-' + tabNum);
+        const activeNav = document.getElementById('tabNav-' + tabNum);
+        if (activePane) activePane.style.display = 'block';
+        if (activeNav) activeNav.classList.add('active');
+
+        currentTab = tabNum;
+
+        // Scroll parent window smoothly
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'vk_scroll_parent_top' }, '*');
+        } else {
+            window.scrollTo({ top: 120, behavior: 'smooth' });
+        }
+
+        setTimeout(notifyParentOfResize, 50);
+        setTimeout(notifyParentOfResize, 250);
+
+        if (tabNum === 5) {
+            setTimeout(initCanvasIfNeeded, 100);
+        }
+    }
+
+    function toggleCollapse(bodyId, btnId) {
+        const body = document.getElementById(bodyId);
+        const btn = document.getElementById(btnId);
+        if (body) {
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                if (btn) btn.innerText = '[-]';
+            } else {
+                body.style.display = 'none';
+                if (btn) btn.innerText = '[+]';
+            }
+            setTimeout(notifyParentOfResize, 50);
+            setTimeout(notifyParentOfResize, 250);
+        }
+    }
+
+    function toggleEmployeeIdField() {
+        const isNew = document.getElementById('type_new').checked;
+        const container = document.getElementById('empIdContainer');
+        if (container) {
+            container.style.display = isNew ? 'none' : 'block';
+        }
+    }
+
+    function toggleSameAddress(isSame) {
+        const container = document.getElementById('permanentAddressContainer');
+        if (container) {
+            container.style.display = isSame ? 'none' : 'flex';
+        }
+    }
+
+    function toggleFresher(isFresher) {
+        const container = document.getElementById('prevEmpContainer');
+        if (container) {
+            container.style.display = isFresher ? 'none' : 'flex';
+            if (isFresher) {
+                document.getElementById('prev_employer').value = '';
+                document.getElementById('prev_desig').value = '';
+                document.getElementById('prev_phone').value = '';
+                document.getElementById('prev_reason').value = 'Fresher - No Prior Experience';
+            }
+        }
+    }
+
+    function checkRoleRequirements(role) {
+        const isPickup = role.toLowerCase().includes('pickup') || role.toLowerCase().includes('delivery');
+        const tab4 = document.getElementById('tabNav-4');
+        if (tab4) {
+            if (isPickup) {
+                tab4.style.border = '1px solid #f59e0b';
+            } else {
+                tab4.style.border = '1px solid rgba(255,255,255,0.35)';
+            }
+        }
+    }
+
+    function previewPhoto(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = document.getElementById('photo_preview');
+                const ph = document.getElementById('photo_placeholder');
+                if (img) {
+                    img.src = e.target.result;
+                    img.style.display = 'block';
+                }
+                if (ph) {
+                    ph.style.display = 'none';
+                }
+            }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function formatAadhaar(input) {
+        let val = input.value.replace(/\D/g, '');
+        if (val.length > 12) val = val.substring(0, 12);
+        let parts = [];
+        for (let i = 0; i < val.length; i += 4) {
+            parts.push(val.substring(i, i + 4));
+        }
+        input.value = parts.join('-');
+    }
+
+    // Canvas Signature Logic
+    let canvas = null;
+    let ctx = null;
+    let isDrawing = false;
+    let hasSignature = false;
+
+    function initCanvasIfNeeded() {
+        canvas = document.getElementById('signaturePad');
+        if (!canvas) return;
+        
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        canvas.width = rect.width * 2;
+        canvas.height = rect.height * 2;
+        ctx = canvas.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.strokeStyle = '#1e1145';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        function getPos(e) {
+            const r = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - r.left,
+                y: clientY - r.top
+            };
+        }
+
+        function startDraw(e) {
+            e.preventDefault();
+            isDrawing = true;
+            const pos = getPos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            const pos = getPos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            hasSignature = true;
+        }
+
+        function stopDraw(e) {
+            if (isDrawing) {
+                isDrawing = false;
+                document.getElementById('signatureData').value = canvas.toDataURL('image/png');
+            }
+        }
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDraw);
+        canvas.addEventListener('mouseleave', stopDraw);
+
+        canvas.addEventListener('touchstart', startDraw, { passive: false });
+        canvas.addEventListener('touchmove', draw, { passive: false });
+        canvas.addEventListener('touchend', stopDraw, { passive: false });
+    }
+
+    function clearSignature() {
+        if (canvas && ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('signatureData').value = '';
+            hasSignature = false;
+        }
+    }
+
+    function saveDraft() {
+        document.getElementById('formAction').value = 'save_draft';
+        if (canvas && hasSignature) {
+            document.getElementById('signatureData').value = canvas.toDataURL('image/png');
+        }
+        document.getElementById('joiningForm').submit();
+    }
+
+    function submitApplication() {
+        if (canvas && hasSignature) {
+            document.getElementById('signatureData').value = canvas.toDataURL('image/png');
+        }
+        
+        const termsAck = document.getElementById('termsAck');
+        const dataConsent = document.getElementById('dataConsentAck');
+        
+        if (termsAck && !termsAck.checked) {
+            alert('Please acknowledge and accept the Employment Terms & Conditions in Tab 4.');
+            goToTab(4);
+            return;
+        }
+        
+        if (dataConsent && !dataConsent.checked) {
+            alert('Please check the Employee Declaration confirmation in Tab 5.');
+            goToTab(5);
+            return;
+        }
+        
+        if (confirm('Are you sure you want to submit your Joining Application to HR? You will not be able to edit once submitted.')) {
+            document.getElementById('formAction').value = 'submit_form';
+            document.getElementById('joiningForm').submit();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const desig = document.getElementById('designationSelect');
+        if (desig && desig.value) {
+            checkRoleRequirements(desig.value);
+        }
+        notifyParentOfResize();
+        setTimeout(notifyParentOfResize, 200);
+        setTimeout(notifyParentOfResize, 800);
+    });
+
+    window.addEventListener('load', function() {
+        notifyParentOfResize();
+        setTimeout(notifyParentOfResize, 300);
+    });
+
+    window.addEventListener('resize', notifyParentOfResize);
+
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'vk_request_height') {
+            notifyParentOfResize();
+        }
+    });
+
+    if (window.ResizeObserver && document.body) {
+        new ResizeObserver(() => {
+            notifyParentOfResize();
+        }).observe(document.body);
+    }
+</script>
+</body>
+</html>

@@ -16,6 +16,11 @@
             </a>
         </li>
         <li class="nav-item">
+            <a class="nav-link <?php echo in_array(basename($_SERVER['PHP_SELF']), ['joining_applications.php', 'joining_review.php']) ? 'active' : ''; ?>" href="joining_applications.php">
+                <i class="fas fa-file-signature"></i> Joining Form
+            </a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : ''; ?>" href="users.php">
                 <i class="fas fa-users"></i> Users
             </a>
@@ -23,6 +28,26 @@
         <li class="nav-item">
             <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'tasks.php' ? 'active' : ''; ?>" href="tasks.php">
                 <i class="fas fa-tasks"></i> Tasks
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_holidays.php' ? 'active' : ''; ?>" href="manage_holidays.php">
+                <i class="fas fa-calendar-day"></i> Manage Holidays
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'manage_leaves.php' ? 'active' : ''; ?>" href="manage_leaves.php">
+                <i class="fas fa-envelope-open-text"></i> Manage Leaves
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'admin_attendance_report.php' ? 'active' : ''; ?>" href="admin_attendance_report.php">
+                <i class="fas fa-calendar-check"></i> Attendance Report
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'performance.php' ? 'active' : ''; ?>" href="performance.php">
+                <i class="fas fa-chart-line"></i> Performance
             </a>
         </li>
         <li class="nav-item">

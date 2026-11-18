@@ -104,6 +104,7 @@ try {
                     <li class="nav-item"><a class="nav-link text-white active bg-primary rounded" href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link text-white" href="tasks.php"><i class="fas fa-tasks"></i> Tasks</a></li>
                     <li class="nav-item"><a class="nav-link text-white" href="departments.php"><i class="fas fa-sitemap"></i> Departments</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="joining_applications.php"><i class="fas fa-file-signature"></i> Joining Form</a></li>
                     <li class="nav-item"><a class="nav-link text-white" href="users.php"><i class="fas fa-users"></i> Users</a></li>
                     <!-- Add this line for Performance Reports -->
                     <li class="nav-item"><a class="nav-link text-white" href="performance.php"><i class="fas fa-chart-line"></i> Performance</a></li>
@@ -111,7 +112,7 @@ try {
                <li class="nav-item"><a class="nav-link text-white" href="manage_holidays.php"><i class="fas fa-calendar-day"></i> Manage Holidays</a></li>
             <li class="nav-item">
     <a class="nav-link text-white" href="manage_leaves.php">
-        <i class="fas fa-tasks"></i> Manage Leaves
+        <i class="fas fa-envelope-open-text"></i> Manage Leaves
     </a>
 </li>    
             </ul>
@@ -222,6 +223,11 @@ try {
                                     <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
                                         <a href="users.php" class="btn btn-outline-success w-100">
                                             <i class="fas fa-users"></i> Users
+                                        </a>
+                                    </div>
+                                    <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
+                                        <a href="joining_applications.php" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-file-signature"></i> Joining Form
                                         </a>
                                     </div>
 

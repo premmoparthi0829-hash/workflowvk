@@ -9,6 +9,8 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['role']) || $_SESSION['role
     exit;
 }
 
+$user_name = $_SESSION['full_name'] ?? 'Management';
+
 $db = new Database();
 $conn = $db->getConnection();
 
@@ -656,7 +658,42 @@ foreach ($holidays as $holiday) {
     </style>
 </head>
 <body>
-    <div class="container-fluid px-4 py-4">
+    <!-- Navbar -->
+    <nav class="navbar navbar-light bg-primary sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand text-white" href="index.php">
+                <i class="fas fa-tasks"></i> Workflow :: VK Logistics Hub
+            </a>
+            <div class="d-flex align-items-center text-white">
+                <i class="fas fa-user-circle me-2"></i>
+                <?php echo htmlspecialchars($user_name); ?> (Management)
+                <a href="../../auth/logout.php" class="btn btn-outline-light btn-sm ms-3">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="container-fluid">
+        <div class="row">
+             <div class="col-md-3 col-lg-2 px-0 sidebar-custom" style="background: #2c3e50; min-height: calc(100vh - 56px); color: white; padding-top: 20px;">
+                <div class="text-center mb-4">
+                    <h5><i class="fas fa-user-shield"></i> Management</h5>
+                    <small><?php echo htmlspecialchars($user_name); ?></small>
+                </div>
+                <ul class="nav flex-column d-none d-md-block">
+                    <li class="nav-item"><a class="nav-link text-white" href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="tasks.php"><i class="fas fa-tasks"></i> Tasks</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="departments.php"><i class="fas fa-sitemap"></i> Departments</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="joining_applications.php"><i class="fas fa-file-signature"></i> Joining Form</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="users.php"><i class="fas fa-users"></i> Users</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="performance.php"><i class="fas fa-chart-line"></i> Performance</a></li>
+                    <li class="nav-item"><a class="nav-link text-white" href="admin_attendance_report.php"><i class="fas fa-chart-bar"></i> Attendance Report</a></li>
+                    <li class="nav-item"><a class="nav-link text-white active bg-primary rounded" href="manage_holidays.php"><i class="fas fa-calendar-day"></i> Manage Holidays</a></li>
+                </ul>
+            </div>
+            
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
         <!-- Top Control Header -->
         <div class="cal-top-card">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
@@ -935,6 +972,8 @@ foreach ($holidays as $holiday) {
                     </div>
                 </div>
             </div>
+        </div>
+            </main>
         </div>
     </div>
 
