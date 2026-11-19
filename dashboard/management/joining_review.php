@@ -205,22 +205,34 @@ $stmt = $db->prepare("SELECT a.*, d.name as department_name
 $stmt->execute([$app_id]);
 $application = $stmt->fetch(PDO::FETCH_ASSOC);
 
-$personal = $db->query("SELECT * FROM employee_personal_details WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$present_address = $db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'present'")->fetch(PDO::FETCH_ASSOC);
-$permanent_address = $db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'permanent'")->fetch(PDO::FETCH_ASSOC);
-$identity = $db->query("SELECT * FROM employee_identity_documents WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$emergency = $db->query("SELECT * FROM employee_emergency_contacts WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$ref1 = $db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 1")->fetch(PDO::FETCH_ASSOC);
-$ref2 = $db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 2")->fetch(PDO::FETCH_ASSOC);
-$prev_emp = $db->query("SELECT * FROM employee_previous_employment WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$declaration = $db->query("SELECT * FROM employee_declarations WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$signature = $db->query("SELECT * FROM employee_signatures WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$uploaded_docs = $db->query("SELECT * FROM employee_uploaded_documents WHERE application_id = {$app_id}")->fetchAll(PDO::FETCH_ASSOC);
-$approval = $db->query("SELECT * FROM employee_joining_approvals WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$history = $db->query("SELECT h.*, u.full_name as user_name FROM employee_joining_status_history h LEFT JOIN users u ON h.changed_by_user_id = u.id WHERE h.application_id = {$app_id} ORDER BY h.id DESC")->fetchAll(PDO::FETCH_ASSOC);
+if (!$application) {
+    header("Location: joining_applications.php");
+    exit;
+}
+
+// Safe attribute getter helper function
+if (!function_exists('getVal')) {
+    function getVal($array, $key, $default = '-') {
+        return (!empty($array) && is_array($array) && isset($array[$key]) && $array[$key] !== '') ? $array[$key] : $default;
+    }
+}
+
+$personal = ($db->query("SELECT * FROM employee_personal_details WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$present_address = ($db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'present'")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$permanent_address = ($db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'permanent'")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$identity = ($db->query("SELECT * FROM employee_identity_documents WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$emergency = ($db->query("SELECT * FROM employee_emergency_contacts WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$ref1 = ($db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 1")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$ref2 = ($db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 2")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$prev_emp = ($db->query("SELECT * FROM employee_previous_employment WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$declaration = ($db->query("SELECT * FROM employee_declarations WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$signature = ($db->query("SELECT * FROM employee_signatures WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$uploaded_docs = ($db->query("SELECT * FROM employee_uploaded_documents WHERE application_id = {$app_id}")->fetchAll(PDO::FETCH_ASSOC)) ?: [];
+$approval = ($db->query("SELECT * FROM employee_joining_approvals WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$history = ($db->query("SELECT h.*, u.full_name as user_name FROM employee_joining_status_history h LEFT JOIN users u ON h.changed_by_user_id = u.id WHERE h.application_id = {$app_id} ORDER BY h.id DESC")->fetchAll(PDO::FETCH_ASSOC)) ?: [];
 
 // Suggested Employee ID if not yet assigned
-$suggested_emp_id = $approval['employee_id_assigned'] ?? $personal['employee_id'] ?? '';
+$suggested_emp_id = getVal($approval, 'employee_id_assigned', getVal($personal, 'employee_id', ''));
 if (empty($suggested_emp_id)) {
     $next_seq = sprintf('%04d', $app_id + 100);
     $suggested_emp_id = 'VK-EMP-' . $next_seq;
@@ -352,6 +364,9 @@ if (empty($suggested_emp_id)) {
                 <i class="fas fa-arrow-left text-white me-2"></i> Onboarding Review Portal
             </a>
             <div class="d-flex align-items-center text-white">
+                <a href="../../joining_form.php?token=<?php echo urlencode($application['token']); ?>" class="btn btn-outline-light btn-sm rounded-pill me-2">
+                    <i class="fas fa-edit me-1"></i> Edit Form
+                </a>
                 <a href="joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="btn btn-outline-light btn-sm rounded-pill me-2">
                     <i class="fas fa-file-pdf me-1"></i> Print / PDF Document
                 </a>
@@ -373,7 +388,8 @@ if (empty($suggested_emp_id)) {
                 <?php else: ?>
                     <div class="rounded-3 border d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 72px; height: 85px; background: #e0f2fe; color: #0284c7; font-size: 1.6rem;">
                         <?php
-                        $words = preg_split('/\s+/', trim($personal['full_name'] ?: 'VK'));
+                        $fullNameStr = getVal($personal, 'full_name', 'VK');
+                        $words = preg_split('/\s+/', trim($fullNameStr));
                         $in = '';
                         foreach ($words as $w) {
                             $c = preg_replace('/[^A-Za-z]/', '', $w);
@@ -386,13 +402,13 @@ if (empty($suggested_emp_id)) {
                 <?php endif; ?>
                 <div>
                     <div class="d-flex align-items-center gap-2">
-                        <h4 class="fw-bold mb-0 text-dark"><?php echo htmlspecialchars($personal['full_name'] ?: 'Applicant Details'); ?></h4>
-                        <span class="badge bg-secondary font-monospace"><?php echo htmlspecialchars($application['application_no']); ?></span>
+                        <h4 class="fw-bold mb-0 text-dark"><?php echo htmlspecialchars(getVal($personal, 'full_name', 'Applicant Details')); ?></h4>
+                        <span class="badge bg-secondary font-monospace"><?php echo htmlspecialchars($application['application_no'] ?? ''); ?></span>
                     </div>
                     <div class="text-muted small">
-                        <?php echo htmlspecialchars($personal['designation'] ?: 'Role Unassigned'); ?> &bull; 
-                        <?php echo htmlspecialchars($application['department_name'] ?: 'Logistics'); ?> &bull; 
-                        Target Joining: <strong><?php echo $personal['joining_date'] ? date('d-M-Y', strtotime($personal['joining_date'])) : 'Pending'; ?></strong>
+                        <?php echo htmlspecialchars(getVal($personal, 'designation', 'Role Unassigned')); ?> &bull; 
+                        <?php echo htmlspecialchars(!empty($application['department_name']) ? $application['department_name'] : 'Logistics'); ?> &bull; 
+                        Target Joining: <strong><?php echo !empty($personal['joining_date']) ? date('d-M-Y', strtotime($personal['joining_date'])) : 'Pending'; ?></strong>
                     </div>
                 </div>
             </div>
@@ -436,43 +452,43 @@ if (empty($suggested_emp_id)) {
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <div class="info-label">Employee Type</div>
-                                <div class="info-value"><?php echo ($application['employee_type'] === 'new_joiner') ? 'New Joiner (కొత్త ఉద్యోగి)' : 'Existing Employee'; ?></div>
+                                <div class="info-value"><?php echo (($application['employee_type'] ?? '') === 'new_joiner') ? 'New Joiner (కొత్త ఉద్యోగి)' : 'Existing Employee'; ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Assigned / Existing ID</div>
-                                <div class="info-value font-monospace text-primary"><?php echo htmlspecialchars($approval['employee_id_assigned'] ?? $personal['employee_id'] ?? 'Pending HR Assignment'); ?></div>
+                                <div class="info-value font-monospace text-primary"><?php echo htmlspecialchars(getVal($approval, 'employee_id_assigned', getVal($personal, 'employee_id', 'Pending HR Assignment'))); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Date of Birth</div>
-                                <div class="info-value"><?php echo $personal['dob'] ? date('d-M-Y', strtotime($personal['dob'])) : '-'; ?></div>
+                                <div class="info-value"><?php echo !empty($personal['dob']) ? date('d-M-Y', strtotime($personal['dob'])) : '-'; ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Father's Name</div>
-                                <div class="info-value"><?php echo htmlspecialchars($personal['father_name'] ?: '-'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($personal, 'father_name', '-')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Gender</div>
-                                <div class="info-value text-capitalize"><?php echo htmlspecialchars($personal['gender'] ?: '-'); ?></div>
+                                <div class="info-value text-capitalize"><?php echo htmlspecialchars(getVal($personal, 'gender', '-')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Blood Group</div>
-                                <div class="info-value"><?php echo htmlspecialchars($personal['blood_group'] ?: 'Not specified'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($personal, 'blood_group', 'Not specified')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Primary Mobile</div>
-                                <div class="info-value"><a href="tel:<?php echo htmlspecialchars($personal['mobile']); ?>"><?php echo htmlspecialchars($personal['mobile'] ?: '-'); ?></a></div>
+                                <div class="info-value"><?php if (!empty($personal['mobile'])): ?><a href="tel:<?php echo htmlspecialchars($personal['mobile']); ?>"><?php echo htmlspecialchars($personal['mobile']); ?></a><?php else: ?>-<?php endif; ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Alternate Mobile</div>
-                                <div class="info-value"><?php echo htmlspecialchars($personal['alternate_mobile'] ?: '-'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($personal, 'alternate_mobile', '-')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Email Address</div>
-                                <div class="info-value"><a href="mailto:<?php echo htmlspecialchars($personal['email']); ?>"><?php echo htmlspecialchars($personal['email'] ?: '-'); ?></a></div>
+                                <div class="info-value"><?php if (!empty($personal['email'])): ?><a href="mailto:<?php echo htmlspecialchars($personal['email']); ?>"><?php echo htmlspecialchars($personal['email']); ?></a><?php else: ?>-<?php endif; ?></div>
                             </div>
                             <div class="col-12">
                                 <div class="info-label">Previous Work Experience</div>
-                                <div class="info-value"><?php echo htmlspecialchars($personal['previous_work_experience'] ?: 'None reported'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($personal, 'previous_work_experience', 'None reported')); ?></div>
                             </div>
                         </div>
                     </div>
@@ -522,13 +538,13 @@ if (empty($suggested_emp_id)) {
                             <div class="col-md-6">
                                 <div class="info-label">Alternate ID Proof</div>
                                 <div class="info-value">
-                                    <?php echo htmlspecialchars($identity['other_id_type'] ?: 'None'); ?>: 
-                                    <span class="font-monospace fw-bold"><?php echo htmlspecialchars($identity['other_id_number'] ?: '-'); ?></span>
+                                    <?php echo htmlspecialchars(getVal($identity, 'other_id_type', 'None')); ?>: 
+                                    <span class="font-monospace fw-bold"><?php echo htmlspecialchars(getVal($identity, 'other_id_number', '-')); ?></span>
                                 </div>
                             </div>
                             <div class="col-12">
                                 <div class="info-label">Documents Submitted Checklist</div>
-                                <div class="info-value text-secondary"><?php echo htmlspecialchars($identity['documents_submitted'] ?: 'None checked'); ?></div>
+                                <div class="info-value text-secondary"><?php echo htmlspecialchars(getVal($identity, 'documents_submitted', 'None checked')); ?></div>
                             </div>
                         </div>
 
@@ -606,15 +622,15 @@ if (empty($suggested_emp_id)) {
                         <div class="row g-2 mb-4">
                             <div class="col-md-4">
                                 <div class="info-label">Employer</div>
-                                <div class="info-value"><?php echo htmlspecialchars($prev_emp['employer_name'] ?: 'None reported'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($prev_emp, 'employer_name', 'None reported')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Designation</div>
-                                <div class="info-value"><?php echo htmlspecialchars($prev_emp['designation'] ?: '-'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($prev_emp, 'designation', '-')); ?></div>
                             </div>
                             <div class="col-md-4">
                                 <div class="info-label">Reason for Leaving</div>
-                                <div class="info-value"><?php echo htmlspecialchars($prev_emp['reason_for_leaving'] ?: '-'); ?></div>
+                                <div class="info-value"><?php echo htmlspecialchars(getVal($prev_emp, 'reason_for_leaving', '-')); ?></div>
                             </div>
                         </div>
 
@@ -655,7 +671,7 @@ if (empty($suggested_emp_id)) {
                                     <div class="border rounded p-2 bg-light d-inline-block">
                                         <img src="../../<?php echo htmlspecialchars($signature['signature_image_path']); ?>" alt="Candidate Signature" style="max-height: 100px;">
                                     </div>
-                                    <div class="text-muted small mt-1">Signed IP: <?php echo htmlspecialchars($signature['signed_ip']); ?> &bull; <?php echo date('d-M-Y H:i', strtotime($signature['signed_at'])); ?></div>
+                                    <div class="text-muted small mt-1">Signed IP: <?php echo htmlspecialchars(getVal($signature, 'signed_ip', '')); ?> &bull; <?php echo !empty($signature['signed_at']) ? date('d-M-Y H:i', strtotime($signature['signed_at'])) : ''; ?></div>
                                 <?php else: ?>
                                     <div class="alert alert-warning small mb-0">No signature recorded.</div>
                                 <?php endif; ?>
@@ -703,14 +719,14 @@ if (empty($suggested_emp_id)) {
                             <div class="mb-3">
                                 <label class="form-label fw-bold small">Confirmed Joining Date <span class="text-danger">*</span></label>
                                 <input type="date" class="form-control" name="confirmed_doj" required 
-                                    value="<?php echo htmlspecialchars($approval['joining_date_confirmed'] ?? $personal['joining_date'] ?? date('Y-m-d')); ?>">
+                                    value="<?php echo htmlspecialchars(getVal($approval, 'joining_date_confirmed', getVal($personal, 'joining_date', date('Y-m-d')))); ?>">
                             </div>
 
                             <!-- Verified By Name -->
                             <div class="mb-3">
                                 <label class="form-label fw-bold small">Documents Verified By</label>
                                 <input type="text" class="form-control" name="verified_by_name" 
-                                    value="<?php echo htmlspecialchars($approval['verified_by_name'] ?? $user_name); ?>">
+                                    value="<?php echo htmlspecialchars(getVal($approval, 'verified_by_name', $user_name)); ?>">
                             </div>
 
                             <!-- Verification Checklist -->

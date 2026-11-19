@@ -1,8 +1,9 @@
 <?php
 date_default_timezone_set('Asia/Kolkata');
-// Enable error reporting
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Error handling: log errors without displaying code internals to users
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 // Application Configuration
 define('APP_NAME', 'Workflow :: VK Logistics Hub');
@@ -19,6 +20,11 @@ define('DB_PORT', '8889');
 define('DB_NAME', 'taskmanagementsystem');
 define('DB_USER', 'root');
 define('DB_PASS', 'root');
+
+// AI & Document Intelligence Configuration
+if (!defined('GEMINI_API_KEY')) {
+    define('GEMINI_API_KEY', getenv('GEMINI_API_KEY') ?: '');
+}
 
 // Session management
 if(session_status() === PHP_SESSION_NONE) {

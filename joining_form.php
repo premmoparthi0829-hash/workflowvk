@@ -81,49 +81,49 @@ if (!$application) {
 
 $app_id = $application['id'];
 
-// If application is already submitted or approved, show confirmation/status view unless correction_required
-$is_editable = in_array($application['status'], ['draft', 'sent_to_employee', 'in_progress', 'correction_required']);
+// If application is already submitted or approved, show confirmation/status view unless correction_required or HR management
+$is_editable = in_array($application['status'], ['draft', 'sent_to_employee', 'in_progress', 'correction_required']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'management');
 
 // Load existing data if any
 $stmt = $db->prepare("SELECT * FROM employee_personal_details WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$personal = $stmt->fetch(PDO::FETCH_ASSOC);
+$personal = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'present'");
 $stmt->execute([$app_id]);
-$present_address = $stmt->fetch(PDO::FETCH_ASSOC);
+$present_address = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_addresses WHERE application_id = ? AND address_type = 'permanent'");
 $stmt->execute([$app_id]);
-$permanent_address = $stmt->fetch(PDO::FETCH_ASSOC);
+$permanent_address = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_identity_documents WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$identity = $stmt->fetch(PDO::FETCH_ASSOC);
+$identity = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_emergency_contacts WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$emergency = $stmt->fetch(PDO::FETCH_ASSOC);
+$emergency = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 1");
 $stmt->execute([$app_id]);
-$ref1 = $stmt->fetch(PDO::FETCH_ASSOC);
+$ref1 = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_references WHERE application_id = ? AND reference_number = 2");
 $stmt->execute([$app_id]);
-$ref2 = $stmt->fetch(PDO::FETCH_ASSOC);
+$ref2 = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_previous_employment WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$prev_emp = $stmt->fetch(PDO::FETCH_ASSOC);
+$prev_emp = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_declarations WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$declaration = $stmt->fetch(PDO::FETCH_ASSOC);
+$declaration = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_signatures WHERE application_id = ?");
 $stmt->execute([$app_id]);
-$signature = $stmt->fetch(PDO::FETCH_ASSOC);
+$signature = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $stmt = $db->prepare("SELECT * FROM employee_uploaded_documents WHERE application_id = ?");
 $stmt->execute([$app_id]);
@@ -254,8 +254,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
         if ($is_pickup_role && !$pickup_policy_ack) {
             $errors[] = "Pickup Associates must acknowledge receipt of the Associate Leave & Incentive Policy / పికప్ అసోసియేట్ పాలసీని అంగీకరించాలి.";
         }
-        if (empty($signature_data) && empty($signature['signature_image_path'])) {
-            $errors[] = "Digital signature is required / డిజిటల్ సంతకం తప్పనిసరి.";
+        $has_sig_upload = (isset($_FILES['signature_file']) && $_FILES['signature_file']['error'] === UPLOAD_ERR_OK);
+        if (empty($signature_data) && empty($signature['signature_image_path']) && !$has_sig_upload) {
+            $errors[] = "Employee signature is required / ఉద్యోగి సంతకం తప్పనిసరి.";
         }
     }
     
@@ -289,9 +290,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
                 }
             }
             
-            // 3. Handle Digital Signature Canvas Base64
+            // 3. Handle Employee Signature (Upload File or Canvas Base64)
             $sig_path = $signature['signature_image_path'] ?? null;
-            if (!empty($signature_data) && strpos($signature_data, 'data:image/png;base64,') === 0) {
+            if (isset($_FILES['signature_file']) && $_FILES['signature_file']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['signature_file']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf'])) {
+                    $sig_filename = 'sig_emp_' . $app_id . '_' . time() . '.' . $ext;
+                    $dest = __DIR__ . '/uploads/signatures/' . $sig_filename;
+                    if (move_uploaded_file($_FILES['signature_file']['tmp_name'], $dest)) {
+                        $sig_path = 'uploads/signatures/' . $sig_filename;
+                    }
+                }
+            } elseif (!empty($signature_data) && strpos($signature_data, 'data:image/png;base64,') === 0) {
                 $data_img = str_replace('data:image/png;base64,', '', $signature_data);
                 $data_img = str_replace(' ', '+', $data_img);
                 $decoded = base64_decode($data_img);
@@ -629,6 +639,17 @@ function lbl($key, $lang = 'bilingual') {
             font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, sans-serif;
         }
 
+        /* OCR Auto-fill Highlighting */
+        .ocr-autofilled {
+            background-color: #f0fdf4 !important;
+            border-color: #22c55e !important;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25) !important;
+            transition: all 0.3s ease;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+
         /* 1. TOP WHITE CORPORATE BANNER (BEL STYLE) */
         .bel-top-logo-banner {
             background: #ffffff;
@@ -688,7 +709,32 @@ function lbl($key, $lang = 'bilingual') {
         .bel-nav-actions {
             display: flex;
             align-items: center;
-            gap: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .bel-upload-btn {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .bel-upload-btn:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
 
         .bel-lang-group {
@@ -986,16 +1032,22 @@ function lbl($key, $lang = 'bilingual') {
 
         .form-check {
             min-height: 1.7rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            display: flex !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
             margin-bottom: 8px;
+            padding-left: 0 !important;
         }
 
+        .form-check .form-check-input,
         .form-check-input {
-            width: 1.25em;
-            height: 1.25em;
-            margin-top: 0;
+            width: 1.25em !important;
+            height: 1.25em !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            margin-top: 3px !important;
+            float: none !important;
+            flex-shrink: 0 !important;
             cursor: pointer;
             border: 1.5px solid #94a3b8;
         }
@@ -1010,12 +1062,22 @@ function lbl($key, $lang = 'bilingual') {
             font-weight: 600;
             color: #1e293b;
             cursor: pointer;
+            line-height: 1.45;
+            margin-bottom: 0;
+        }
+
+        .form-switch {
+            padding-left: 2.5em !important;
+            display: block !important;
         }
 
         .form-switch .form-check-input {
-            width: 2.3em;
-            height: 1.25em;
-            border-radius: 2em;
+            width: 2.3em !important;
+            height: 1.25em !important;
+            border-radius: 2em !important;
+            margin-left: -2.5em !important;
+            margin-top: 0 !important;
+            float: left !important;
         }
 
         /* 8. BOTTOM ACTION BAR (BEL STYLE) */
@@ -1162,18 +1224,22 @@ function lbl($key, $lang = 'bilingual') {
         </div>
     </div>
 
-    <!-- SOLID DEEP PURPLE NAV BAR -->
+    <!-- SOLID DEEP PURPLE NAV BAR - UNIFIED SINGLE HEADER SECTION -->
     <div class="bel-top-nav-bar">
         <div class="bel-nav-container">
-            <div class="bel-nav-title">
+            <div class="bel-nav-title mb-0">
                 <i class="fas fa-file-signature me-2"></i> VK Logistics Hub Application Form
             </div>
             <div class="bel-nav-actions">
-                <div class="bel-lang-group">
-                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=bilingual<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'bilingual' ? 'active' : ''; ?>">Bilingual (ద్విభాష)</a>
-                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=en<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'en' ? 'active' : ''; ?>">English</a>
-                    <a href="?token=<?php echo urlencode($token ?? ''); ?>&lang=te<?php echo $is_embedded ? '&embedded=1' : ''; ?>" class="bel-lang-pill <?php echo $lang === 'te' ? 'active' : ''; ?>">తెలుగు</a>
-                </div>
+                <?php if ($is_editable): ?>
+                    <button type="button" class="bel-upload-btn" onclick="openOcrModal()">
+                        <i class="fas fa-file-upload"></i> Upload Written Form
+                    </button>
+                <?php endif; ?>
+
+                <button type="button" class="bel-nav-btn" id="btnToggleScanView" style="display: none;" onclick="toggleScanViewer()">
+                    <i class="fas fa-eye me-1"></i> View Scan
+                </button>
 
                 <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="bel-nav-btn" title="Download Form PDF">
                     <i class="fas fa-file-pdf text-danger me-1"></i> PDF
@@ -1195,17 +1261,6 @@ function lbl($key, $lang = 'bilingual') {
 
 <!-- MAIN CONTAINER -->
 <div class="bel-content-wrapper">
-
-    <!-- 1. APPLICATION REFERENCE INFO STRIP -->
-    <div class="bel-info-strip">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="text-secondary fw-bold" style="font-size: 14.5px;">Application Ref:</span>
-            <span class="fw-bold font-monospace text-dark fs-5"><?php echo htmlspecialchars($application['application_no']); ?></span>
-        </div>
-        <div class="text-muted" style="font-size: 13.5px;">
-            <i class="far fa-clock me-1"></i> Last Updated: <?php echo !empty($application['updated_at']) ? date('d-M-Y H:i', strtotime($application['updated_at'])) . ' hrs' : date('d-M-Y'); ?>
-        </div>
-    </div>
 
     <!-- Alert Messages -->
     <?php if (!empty($success_message)): ?>
@@ -1286,25 +1341,26 @@ function lbl($key, $lang = 'bilingual') {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label"><?php echo lbl('designation', $lang); ?>: <span class="text-danger">*</span></label>
-                            <select class="form-select" name="designation" id="designationSelect" onchange="checkRoleRequirements(this.value)" required <?php echo !$is_editable ? 'disabled' : ''; ?>>
-                                <option value="">-- Select Post / Role --</option>
-                                <?php
-                                $roles = [
-                                    'Pickup Associate' => 'Pickup Associate (పికప్ అసోసియేట్)',
-                                    'Delivery Associate' => 'Delivery Associate (డెలివరీ అసోసియేట్)',
-                                    'Operations Assistant' => 'Operations Assistant (ఆపరేషన్స్ అసిస్టెంట్)',
-                                    'Warehouse Executive' => 'Warehouse Executive (గిడ్డంగి ఎగ్జిక్యూటివ్)',
-                                    'Hub Incharge' => 'Hub Incharge (హబ్ ఇన్‌ఛార్జ్)',
-                                    'Customer Support Executive' => 'Customer Support Executive (కస్టమర్ సపోర్ట్)',
-                                    'Accounts Executive' => 'Accounts Executive (అకౌంట్స్ ఎగ్జిక్యూటివ్)',
-                                    'HR Executive' => 'HR Executive (హెచ్‌ఆర్ ఎగ్జిక్యూటివ్)'
-                                ];
-                                $curr_role = $personal['designation'] ?? '';
-                                foreach ($roles as $r_val => $r_lbl):
-                                ?>
-                                    <option value="<?php echo $r_val; ?>" <?php echo $curr_role === $r_val ? 'selected' : ''; ?>><?php echo $r_lbl; ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="designation" 
+                                   id="designationSelect" 
+                                   list="designationList" 
+                                   placeholder="Enter Designation / Job Role" 
+                                   value="<?php echo htmlspecialchars($personal['designation'] ?? ''); ?>" 
+                                   oninput="checkRoleRequirements(this.value)" 
+                                   required 
+                                   <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            <datalist id="designationList">
+                                <option value="Pickup Associate">
+                                <option value="Delivery Associate">
+                                <option value="Operations Assistant">
+                                <option value="Warehouse Executive">
+                                <option value="Hub Incharge">
+                                <option value="Customer Support Executive">
+                                <option value="Accounts Executive">
+                                <option value="HR Executive">
+                            </datalist>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label"><?php echo lbl('department', $lang); ?>: <span class="text-danger">*</span></label>
@@ -1733,11 +1789,13 @@ function lbl($key, $lang = 'bilingual') {
                     <button type="button" class="bel-toggle-btn" id="btnTogglePrevEmp">[-]</button>
                 </div>
                 <div id="secPrevEmp" class="bel-section-body">
-                    <div class="form-check mb-3 p-2 bg-light rounded border">
-                        <input class="form-check-input ms-1 me-2" type="checkbox" id="fresherToggle" onchange="toggleFresher(this.checked)">
-                        <label class="form-check-label fw-bold" for="fresherToggle">
-                            I am a fresher / no prior work experience (నేను ఫ్రెషర్ / ఎటువంటి మునుపటి పని అనుభవం లేదు)
-                        </label>
+                    <div class="mb-3 p-2 bg-light rounded border">
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" id="fresherToggle" onchange="toggleFresher(this.checked)">
+                            <label class="form-check-label fw-bold" for="fresherToggle">
+                                I am a fresher / no prior work experience (నేను ఫ్రెషర్ / ఎటువంటి మునుపటి పని అనుభవం లేదు)
+                            </label>
+                        </div>
                     </div>
 
                     <div id="prevEmpContainer" class="row g-3">
@@ -1874,7 +1932,7 @@ function lbl($key, $lang = 'bilingual') {
                     </div>
 
                     <div class="mt-3 p-3 bg-light rounded border">
-                        <div class="form-check">
+                        <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" name="terms_acknowledged" id="termsAck" value="1" 
                                 <?php echo (!empty($declaration['terms_acknowledged']) || !empty($_POST['terms_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
                             <label class="form-check-label fw-bold text-dark" for="termsAck">
@@ -1955,7 +2013,7 @@ function lbl($key, $lang = 'bilingual') {
 
                     <!-- Policy Checkbox -->
                     <div class="p-3 bg-light rounded border">
-                        <div class="form-check">
+                        <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" name="pickup_policy_acknowledged" id="pickupPolicyAck" value="1" 
                                 <?php echo (!empty($declaration['pickup_policy_acknowledged']) || !empty($_POST['pickup_policy_acknowledged'])) ? 'checked' : ''; ?> <?php echo !$is_editable ? 'disabled' : ''; ?>>
                             <label class="form-check-label fw-bold text-dark" for="pickupPolicyAck">
@@ -2057,13 +2115,15 @@ function lbl($key, $lang = 'bilingual') {
                     </div>
 
                     <!-- Mandatory Data Consent Checkbox -->
-                    <div class="form-check p-3 bg-light border rounded">
-                        <input class="form-check-input" type="checkbox" name="data_consent_acknowledged" id="dataConsentAck" value="1" 
-                            <?php echo (!empty($declaration['data_consent_acknowledged']) || !empty($_POST['data_consent_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
-                        <label class="form-check-label fw-bold text-dark" for="dataConsentAck">
-                            I confirm that all information provided above is true and accurate. I have read, understood, and accept all the terms, policies and declarations.<br>
-                            <span class="text-muted fw-normal te-text">పైన అందించిన సమాచారమంతా సత్యమైనదని మరియు ఖచ్చితమైనదని ధృవీకరిస్తున్నాను. నిబంధనలు మరియు పాలసీలను అంగీకరిస్తున్నాను.</span>
-                        </label>
+                    <div class="p-3 bg-light border rounded">
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" name="data_consent_acknowledged" id="dataConsentAck" value="1" 
+                                <?php echo (!empty($declaration['data_consent_acknowledged']) || !empty($_POST['data_consent_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                            <label class="form-check-label fw-bold text-dark" for="dataConsentAck">
+                                I confirm that all information provided above is true and accurate. I have read, understood, and accept all the terms, policies and declarations.<br>
+                                <span class="text-muted fw-normal te-text">పైన అందించిన సమాచారమంతా సత్యమైనదని మరియు ఖచ్చితమైనదని ధృవీకరిస్తున్నాను. నిబంధనలు మరియు పాలసీలను అంగీకరిస్తున్నాను.</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2076,42 +2136,62 @@ function lbl($key, $lang = 'bilingual') {
                 </div>
                 <div id="secSignature" class="bel-section-body">
                     <div class="row g-4">
-                        <div class="col-md-7">
+                        <div class="col-md-6">
                             <label class="form-label">
                                 <?php echo lbl('signature_of_employee', $lang); ?>: <span class="text-danger">*</span>
-                                <small class="text-muted fw-normal">(Draw inside the signature box with mouse or finger)</small>
                             </label>
 
-                            <?php if (!empty($signature['signature_image_path']) && file_exists(__DIR__ . '/' . $signature['signature_image_path'])): ?>
-                                <div class="border rounded p-2 text-center bg-white mb-2">
-                                    <img src="<?php echo htmlspecialchars($signature['signature_image_path']); ?>" alt="Recorded Signature" style="max-height: 100px;">
-                                    <div class="text-muted small mt-1" style="font-size:12.5px;">Recorded on <?php echo date('d-M-Y H:i', strtotime($signature['signed_at'])); ?></div>
-                                </div>
-                            <?php endif; ?>
+                            <div class="p-3 border rounded bg-light text-center">
+                                <?php if (!empty($signature['signature_image_path']) && file_exists(__DIR__ . '/' . $signature['signature_image_path'])): ?>
+                                    <div class="mb-2">
+                                        <img src="<?php echo htmlspecialchars($signature['signature_image_path']); ?>" alt="Recorded Signature" style="max-height: 90px;" class="rounded border bg-white p-1" id="existingSignatureImg">
+                                        <div class="text-muted small mt-1" style="font-size:12px;">Recorded on <?php echo date('d-M-Y H:i', strtotime($signature['signed_at'])); ?></div>
+                                    </div>
+                                <?php else: ?>
+                                    <i class="fas fa-file-signature fs-1 text-primary mb-2 d-block" id="sigIconPlaceholder"></i>
+                                <?php endif; ?>
 
-                            <?php if ($is_editable): ?>
-                                <div class="position-relative">
-                                    <canvas id="signaturePad" class="bel-sig-canvas"></canvas>
-                                    <button type="button" class="btn btn-outline-danger btn-sm position-absolute top-0 end-0 m-2" onclick="clearSignature()">
-                                        <i class="fas fa-eraser me-1"></i> Clear
-                                    </button>
-                                </div>
-                                <div class="text-muted mt-2" style="font-size:13px;">Your digital signature is legally binding under the Information Technology Act.</div>
-                            <?php endif; ?>
+                                <?php if ($is_editable): ?>
+                                    <input type="file" class="form-control mt-2" name="signature_file" id="signatureFileInput" accept="image/*,.pdf" onchange="previewSignatureUpload(this)">
+                                    <div class="text-muted mt-2" style="font-size: 13px;">Upload photo or scan of employee signature (JPG, PNG)</div>
+                                    
+                                    <div id="sigFilePreviewContainer" class="mt-2 text-center d-none">
+                                        <img id="sigFilePreview" src="#" alt="Signature Preview" style="max-height: 80px;" class="border rounded bg-white p-1">
+                                    </div>
+
+                                    <div class="mt-2 text-start">
+                                        <a href="javascript:void(0)" class="small text-decoration-none text-muted" onclick="toggleCanvasDraw()">
+                                            <i class="fas fa-pen-nib me-1"></i> <span id="toggleDrawLabel">Or draw signature with mouse / finger</span>
+                                        </a>
+                                        <div id="canvasDrawContainer" style="display: none;" class="mt-2 position-relative">
+                                            <canvas id="signaturePad" class="bel-sig-canvas"></canvas>
+                                            <button type="button" class="btn btn-outline-danger btn-sm position-absolute top-0 end-0 m-2" onclick="clearSignature()">
+                                                <i class="fas fa-eraser me-1"></i> Clear
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-muted mt-2" style="font-size:12.5px;">Your signature is legally binding under the Information Technology Act.</div>
                         </div>
 
-                        <div class="col-md-5">
+                        <div class="col-md-6">
                             <label class="form-label"><?php echo lbl('left_thumb_impression', $lang); ?>: <span class="badge bg-secondary">Optional</span></label>
                             <div class="p-3 border rounded bg-light text-center">
                                 <?php if (!empty($signature['thumb_impression_path']) && file_exists(__DIR__ . '/' . $signature['thumb_impression_path'])): ?>
-                                    <img src="<?php echo htmlspecialchars($signature['thumb_impression_path']); ?>" alt="Thumb Impression" style="max-height: 90px;" class="mb-2 rounded border">
+                                    <div class="mb-2">
+                                        <img src="<?php echo htmlspecialchars($signature['thumb_impression_path']); ?>" alt="Thumb Impression" style="max-height: 90px;" class="rounded border bg-white p-1" id="existingThumbImg">
+                                    </div>
                                 <?php else: ?>
-                                    <i class="fas fa-fingerprint fs-1 text-muted mb-2 d-block"></i>
+                                    <i class="fas fa-fingerprint fs-1 text-muted mb-2 d-block" id="thumbIconPlaceholder"></i>
                                 <?php endif; ?>
                                 
                                 <?php if ($is_editable): ?>
-                                    <input type="file" class="form-control mt-2" name="thumb_impression" accept="image/*">
+                                    <input type="file" class="form-control mt-2" name="thumb_impression" id="thumbImpressionInput" accept="image/*" onchange="previewThumbUpload(this)">
                                     <div class="text-muted mt-2" style="font-size: 13px;">Upload photo or scan of left thumb ink impression</div>
+                                    <div id="thumbFilePreviewContainer" class="mt-2 text-center d-none">
+                                        <img id="thumbFilePreview" src="#" alt="Thumb Preview" style="max-height: 80px;" class="border rounded bg-white p-1">
+                                    </div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -2357,6 +2437,64 @@ function lbl($key, $lang = 'bilingual') {
         }
     }
 
+    function toggleCanvasDraw() {
+        const drawBox = document.getElementById('canvasDrawContainer');
+        const label = document.getElementById('toggleDrawLabel');
+        if (drawBox) {
+            if (drawBox.style.display === 'none' || drawBox.style.display === '') {
+                drawBox.style.display = 'block';
+                if (label) label.textContent = 'Hide drawing canvas';
+                setTimeout(initCanvasIfNeeded, 50);
+            } else {
+                drawBox.style.display = 'none';
+                if (label) label.textContent = 'Or draw signature with mouse / finger';
+            }
+        }
+    }
+
+    function previewSignatureUpload(input) {
+        if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const previewContainer = document.getElementById('sigFilePreviewContainer');
+            const previewImg = document.getElementById('sigFilePreview');
+            const iconPlaceholder = document.getElementById('sigIconPlaceholder');
+            
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    if (previewImg) previewImg.src = e.target.result;
+                    if (previewContainer) previewContainer.classList.remove('d-none');
+                    if (iconPlaceholder) iconPlaceholder.classList.add('d-none');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                if (previewContainer) {
+                    previewContainer.innerHTML = '<span class="badge bg-secondary p-2"><i class="fas fa-file-pdf me-1 text-danger"></i> ' + file.name + '</span>';
+                    previewContainer.classList.remove('d-none');
+                }
+            }
+        }
+    }
+
+    function previewThumbUpload(input) {
+        if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const previewContainer = document.getElementById('thumbFilePreviewContainer');
+            const previewImg = document.getElementById('thumbFilePreview');
+            const iconPlaceholder = document.getElementById('thumbIconPlaceholder');
+            
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    if (previewImg) previewImg.src = e.target.result;
+                    if (previewContainer) previewContainer.classList.remove('d-none');
+                    if (iconPlaceholder) iconPlaceholder.classList.add('d-none');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+    }
+
     function saveDraft() {
         document.getElementById('formAction').value = 'save_draft';
         if (canvas && hasSignature) {
@@ -2381,6 +2519,17 @@ function lbl($key, $lang = 'bilingual') {
         
         if (dataConsent && !dataConsent.checked) {
             alert('Please check the Employee Declaration confirmation in Tab 5.');
+            goToTab(5);
+            return;
+        }
+
+        const sigFileInput = document.getElementById('signatureFileInput');
+        const hasSigFile = sigFileInput && sigFileInput.files && sigFileInput.files.length > 0;
+        const hasExistingSig = document.getElementById('existingSignatureImg') !== null;
+        const hasCanvasSig = (hasSignature && document.getElementById('signatureData').value !== '');
+
+        if (!hasSigFile && !hasExistingSig && !hasCanvasSig) {
+            alert('Please upload or draw your Employee Signature in Tab 5 / దయచేసి ఉద్యోగి సంతకాన్ని అప్‌లోడ్ చేయండి.');
             goToTab(5);
             return;
         }
@@ -2420,5 +2569,75 @@ function lbl($key, $lang = 'bilingual') {
         }).observe(document.body);
     }
 </script>
+
+<!-- OCR UPLOAD MODAL -->
+<div class="modal fade" id="ocrUploadModal" tabindex="-1" aria-labelledby="ocrUploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header bg-dark text-white border-0 py-3 px-4">
+                <div class="d-flex align-items-center">
+                    <div class="rounded-circle bg-primary bg-opacity-25 p-2 me-3">
+                        <i class="fas fa-magic text-primary fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold mb-0" id="ocrUploadModalLabel">Upload Written Form</h5>
+                        <small class="text-white-50">Upload scanned PDF or photo of physical paper form</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" onclick="closeOcrModal()"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div id="ocrUploadFormArea">
+                    <!-- Drag & Drop Zone -->
+                    <div id="ocrDropZone" class="border border-2 border-dashed rounded-4 p-4 text-center cursor-pointer mb-3" style="border-color: #cbd5e1; background: #f8fafc; cursor: pointer;">
+                        <div class="mb-3">
+                            <i class="fas fa-cloud-upload-alt text-primary" style="font-size: 3rem;"></i>
+                        </div>
+                        <h6 class="fw-bold mb-1">Drag and drop your written form here, or click to browse</h6>
+                        <p class="text-muted small mb-2">Supports multi-page scanned PDF or photos (JPG, PNG, WebP up to 25MB)</p>
+                        <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3">
+                            <i class="fas fa-folder-open me-1"></i> Choose File
+                        </button>
+                        <input type="file" id="ocrFileInput" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display: none;">
+                    </div>
+
+                    <!-- File Selected Indicator -->
+                    <div id="ocrFileInfo" class="alert alert-light border d-flex align-items-center justify-content-between p-2 px-3 rounded-3 mb-3" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-file-pdf text-danger fs-4 me-2"></i>
+                            <div>
+                                <strong id="ocrSelectedFileName" class="text-truncate d-inline-block" style="max-width: 380px;"></strong>
+                                <small id="ocrSelectedFileSize" class="text-muted ms-2"></small>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm text-danger" onclick="document.getElementById('ocrFileInput').value = ''; document.getElementById('ocrFileInfo').style.display = 'none'; document.getElementById('btnStartOcrUpload').disabled = true;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progress / Processing State -->
+                <div id="ocrProgressContainer" style="display: none;" class="py-4 text-center">
+                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                        <span class="visually-hidden">Processing...</span>
+                    </div>
+                    <h6 class="fw-bold mb-2" id="ocrStatusText">Uploading document...</h6>
+                    <div class="progress rounded-pill mb-2" style="height: 10px;">
+                        <div id="ocrProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 20%;"></div>
+                    </div>
+                    <small class="text-muted">Analyzing handwriting and mapping fields. This typically takes 3-6 seconds.</small>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-3 px-4 d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal" onclick="closeOcrModal()">Cancel</button>
+                <button type="button" class="btn btn-primary rounded-pill px-5 fw-bold" id="btnStartOcrUpload" onclick="startOcrProcessing()" disabled>
+                    <i class="fas fa-check-circle me-1"></i> Submit
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="assets/js/form_autofill.js"></script>
 </body>
 </html>

@@ -39,17 +39,17 @@ if (!$application) {
 }
 
 // Fetch all normalized data
-$personal = $db->query("SELECT * FROM employee_personal_details WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$present_address = $db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'present'")->fetch(PDO::FETCH_ASSOC);
-$permanent_address = $db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'permanent'")->fetch(PDO::FETCH_ASSOC);
-$identity = $db->query("SELECT * FROM employee_identity_documents WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$emergency = $db->query("SELECT * FROM employee_emergency_contacts WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$ref1 = $db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 1")->fetch(PDO::FETCH_ASSOC);
-$ref2 = $db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 2")->fetch(PDO::FETCH_ASSOC);
-$prev_emp = $db->query("SELECT * FROM employee_previous_employment WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$declaration = $db->query("SELECT * FROM employee_declarations WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$signature = $db->query("SELECT * FROM employee_signatures WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
-$approval = $db->query("SELECT * FROM employee_joining_approvals WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC);
+$personal = ($db->query("SELECT * FROM employee_personal_details WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$present_address = ($db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'present'")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$permanent_address = ($db->query("SELECT * FROM employee_addresses WHERE application_id = {$app_id} AND address_type = 'permanent'")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$identity = ($db->query("SELECT * FROM employee_identity_documents WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$emergency = ($db->query("SELECT * FROM employee_emergency_contacts WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$ref1 = ($db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 1")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$ref2 = ($db->query("SELECT * FROM employee_references WHERE application_id = {$app_id} AND reference_number = 2")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$prev_emp = ($db->query("SELECT * FROM employee_previous_employment WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$declaration = ($db->query("SELECT * FROM employee_declarations WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$signature = ($db->query("SELECT * FROM employee_signatures WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
+$approval = ($db->query("SELECT * FROM employee_joining_approvals WHERE application_id = {$app_id}")->fetch(PDO::FETCH_ASSOC)) ?: [];
 
 // Helper to safely render bilingual labels in PDF
 function p_lbl($key) {

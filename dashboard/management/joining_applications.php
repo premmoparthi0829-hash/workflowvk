@@ -126,17 +126,23 @@ if (isset($_GET['delete_id'])) {
     }
 }
 
+// Clean up any unsubmitted invite / sent_to_employee records
+try {
+    $db->exec("DELETE FROM employee_joining_applications WHERE status = 'sent_to_employee'");
+} catch (Exception $e) {
+    // Ignore if constraint error
+}
+
 // Calculate Summary Statistics
 $metrics = [
     'total' => 0,
     'pending' => 0,
     'correction' => 0,
     'approved' => 0,
-    'rejected' => 0,
-    'sent' => 0
+    'rejected' => 0
 ];
 
-$stmt = $db->query("SELECT status, COUNT(*) as cnt FROM employee_joining_applications GROUP BY status");
+$stmt = $db->query("SELECT status, COUNT(*) as cnt FROM employee_joining_applications WHERE status != 'sent_to_employee' GROUP BY status");
 while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     $st = $row['status'];
     $cnt = intval($row['cnt']);
@@ -145,7 +151,6 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     elseif ($st === 'correction_required') $metrics['correction'] += $cnt;
     elseif ($st === 'approved') $metrics['approved'] += $cnt;
     elseif ($st === 'rejected') $metrics['rejected'] += $cnt;
-    elseif ($st === 'sent_to_employee' || $st === 'in_progress' || $st === 'draft') $metrics['sent'] += $cnt;
 }
 
 // Fetch departments for filter & modal
@@ -197,15 +202,13 @@ $sql = "SELECT
         LEFT JOIN employee_personal_details p ON a.id = p.application_id
         LEFT JOIN departments d ON p.department_id = d.id
         LEFT JOIN employee_joining_approvals ap ON a.id = ap.application_id
-        WHERE 1=1";
+        WHERE a.status != 'sent_to_employee'";
 
 $params = [];
 
 if ($filter_status !== 'all') {
     if ($filter_status === 'pending') {
         $sql .= " AND a.status IN ('pending_hr_verification', 'submitted', 'resubmitted')";
-    } elseif ($filter_status === 'in_progress') {
-        $sql .= " AND a.status IN ('sent_to_employee', 'in_progress', 'draft')";
     } else {
         $sql .= " AND a.status = ?";
         $params[] = $filter_status;
@@ -364,6 +367,77 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .hover-primary:hover {
             color: #2563eb !important;
         }
+
+        /* Top Action Button with Shade */
+        .vk-form-action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 22px;
+            border-radius: 50rem;
+            font-size: 0.88rem;
+            font-weight: 600;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .btn-primary-shade {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff !important;
+            border: 1px solid #1d4ed8;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+        }
+
+        .btn-primary-shade:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
+            color: #ffffff !important;
+        }
+
+        .btn-secondary-shade {
+            background: #ffffff;
+            color: #1e293b !important;
+            border: 1px solid #cbd5e1;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .btn-secondary-shade:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            color: #2563eb !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        }
+
+        .vk-btn-invite {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 22px;
+            border-radius: 50rem;
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: #ffffff;
+            background: linear-gradient(135deg, #1e1145 0%, #2b1766 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 14px rgba(30, 17, 69, 0.25);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .vk-btn-invite:hover {
+            background: linear-gradient(135deg, #2b1766 0%, #371d7d 100%);
+            color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(30, 17, 69, 0.35);
+        }
+
+        .vk-btn-invite:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -414,19 +488,9 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <h2 class="h3 fw-bold mb-1 text-dark">Employee Joining Management</h2>
                         <p class="text-muted small mb-0">Bilingual (English + Telugu) Electronic Joining Forms, Policy Acknowledgments & HR Approvals</p>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <!-- Clean In-Page View Switcher -->
-                        <div class="p-1 bg-white border rounded-pill d-inline-flex shadow-sm">
-                            <button type="button" class="btn btn-sm rounded-pill px-3 fw-bold btn-primary" id="btnListView" onclick="switchView('list')">
-                                <i class="fas fa-list me-1"></i> Applications List
-                            </button>
-                            <button type="button" class="btn btn-sm rounded-pill px-3 fw-bold text-muted btn-light" id="btnFormView" onclick="switchView('form')">
-                                <i class="fas fa-file-signature me-1"></i> Blank Joining Form
-                            </button>
-                        </div>
-
-                        <button type="button" class="btn btn-primary rounded-pill px-3 shadow-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#newInviteModal">
-                            <i class="fas fa-paper-plane me-1"></i> Send Invite
+                    <div class="d-flex align-items-center">
+                        <button type="button" class="vk-form-action-btn btn-primary-shade" id="btnFormView" onclick="switchView('form')">
+                            <i class="fas fa-file-signature me-1"></i> Blank Joining Form
                         </button>
                     </div>
                 </div>
@@ -444,7 +508,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 <!-- Metrics / Stat Cards -->
                 <div class="row g-3 mb-4">
-                    <div class="col-6 col-md-4 col-xl-2">
+                    <div class="col-6 col-md">
                         <div class="stat-card">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="text-muted small fw-bold">TOTAL</span>
@@ -455,7 +519,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-4 col-xl-2">
+                    <div class="col-6 col-md">
                         <div class="stat-card border-warning">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="text-warning small fw-bold">PENDING HR</span>
@@ -466,7 +530,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-4 col-xl-2">
+                    <div class="col-6 col-md">
                         <div class="stat-card border-danger">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="text-danger small fw-bold">CORRECTION</span>
@@ -477,7 +541,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-4 col-xl-2">
+                    <div class="col-6 col-md">
                         <div class="stat-card border-success">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="text-success small fw-bold">APPROVED</span>
@@ -488,18 +552,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
 
-                    <div class="col-6 col-md-4 col-xl-2">
-                        <div class="stat-card">
-                            <div class="d-flex align-items-center justify-content-between mb-2">
-                                <span class="text-info small fw-bold">IN PROGRESS</span>
-                                <div class="stat-icon bg-info bg-opacity-10 text-info"><i class="fas fa-paper-plane"></i></div>
-                            </div>
-                            <h3 class="fw-bold text-info mb-0"><?php echo $metrics['sent']; ?></h3>
-                            <small class="text-muted">With Candidate</small>
-                        </div>
-                    </div>
-
-                    <div class="col-6 col-md-4 col-xl-2">
+                    <div class="col-6 col-md">
                         <div class="stat-card">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="text-secondary small fw-bold">REJECTED</span>
@@ -527,7 +580,6 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <option value="pending" <?php echo $filter_status === 'pending' ? 'selected' : ''; ?>>Pending HR Verification</option>
                                     <option value="correction_required" <?php echo $filter_status === 'correction_required' ? 'selected' : ''; ?>>Correction Required</option>
                                     <option value="approved" <?php echo $filter_status === 'approved' ? 'selected' : ''; ?>>Approved</option>
-                                    <option value="in_progress" <?php echo $filter_status === 'in_progress' ? 'selected' : ''; ?>>Sent to Employee / Draft</option>
                                     <option value="rejected" <?php echo $filter_status === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
                                 </select>
                             </div>
@@ -566,43 +618,19 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <th>Designation & Dept</th>
                                     <th>Mobile & Email</th>
                                     <th>Submitted Date</th>
-                                    <th>Status</th>
-                                    <th class="text-end" style="min-width: 170px;">Actions</th>
+                                    <th class="text-end" style="min-width: 230px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($applications)): ?>
                                     <tr>
-                                        <td colspan="7" class="text-center py-5 text-muted">
+                                        <td colspan="6" class="text-center py-5 text-muted">
                                             <i class="fas fa-inbox fs-2 mb-2 d-block"></i>
                                             No employee joining applications found matching your criteria.
                                         </td>
                                     </tr>
                                 <?php else: ?>
                                     <?php foreach ($applications as $app): 
-                                        $st = $app['status'];
-                                        $badge_class = 'status-sent';
-                                        $status_text = 'Sent to Candidate';
-                                        $status_icon = '<i class="fas fa-paper-plane me-1"></i>';
-                                        
-                                        if ($st === 'pending_hr_verification' || $st === 'submitted') {
-                                            $badge_class = 'status-pending';
-                                            $status_text = 'Pending Verification';
-                                            $status_icon = '<i class="fas fa-clock me-1"></i>';
-                                        } elseif ($st === 'approved') {
-                                            $badge_class = 'status-approved';
-                                            $status_text = 'Approved (' . ($app['hr_assigned_emp_id'] ?: 'Confirmed') . ')';
-                                            $status_icon = '<i class="fas fa-check-circle me-1"></i>';
-                                        } elseif ($st === 'correction_required') {
-                                            $badge_class = 'status-correction';
-                                            $status_text = 'Correction Required';
-                                            $status_icon = '<i class="fas fa-exclamation-triangle me-1"></i>';
-                                        } elseif ($st === 'rejected') {
-                                            $badge_class = 'status-rejected';
-                                            $status_text = 'Rejected';
-                                            $status_icon = '<i class="fas fa-times-circle me-1"></i>';
-                                        }
-                                        
                                         $has_photo = !empty($app['photo_path']) && file_exists(__DIR__ . '/../../' . $app['photo_path']);
                                         $initials = getCandidateInitials($app['full_name']);
                                         $avatar_color = getAvatarColors($app['full_name']);
@@ -651,24 +679,16 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                     <span class="text-muted small">Not submitted</span>
                                                 <?php endif; ?>
                                             </td>
-                                            <td>
-                                                <span class="badge badge-status <?php echo $badge_class; ?>">
-                                                    <?php echo $status_icon . $status_text; ?>
-                                                </span>
-                                            </td>
                                             <td class="text-end">
-                                                <div class="d-flex align-items-center justify-content-end gap-1">
-                                                    <a href="joining_review.php?id=<?php echo $app['id']; ?>" class="btn btn-sm btn-primary rounded-pill px-3 py-1 shadow-sm fw-semibold" title="Review & Verify Details">
-                                                        <i class="fas fa-search me-1"></i> Review
+                                                <div class="d-flex align-items-center justify-content-end gap-2">
+                                                    <a href="../../joining_form.php?token=<?php echo urlencode($app['token']); ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" title="Edit Application Form">
+                                                        <i class="fas fa-edit me-1"></i> Edit
                                                     </a>
-                                                    <a href="joining_pdf.php?id=<?php echo $app['id']; ?>&token=<?php echo urlencode($app['token']); ?>" target="_blank" class="btn btn-sm btn-outline-danger rounded-circle action-circle-btn" title="View / Print 9-Page PDF">
-                                                        <i class="fas fa-file-pdf"></i>
+                                                    <a href="joining_pdf.php?id=<?php echo $app['id']; ?>&token=<?php echo urlencode($app['token']); ?>" target="_blank" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" title="View / Print PDF Document">
+                                                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF
                                                     </a>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle action-circle-btn" onclick="copyLink('<?php echo $form_link; ?>')" title="Copy Candidate Invite Link">
-                                                        <i class="fas fa-link"></i>
-                                                    </button>
-                                                    <a href="joining_applications.php?delete_id=<?php echo $app['id']; ?>" class="btn btn-sm btn-outline-danger rounded-circle action-circle-btn" onclick="return confirm('Are you sure you want to delete application #<?php echo $app['application_no']; ?>?');" title="Delete Application">
-                                                        <i class="fas fa-trash-alt"></i>
+                                                    <a href="joining_applications.php?delete_id=<?php echo $app['id']; ?>" class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" onclick="return confirm('Are you sure you want to delete application #<?php echo $app['application_no']; ?>?');" title="Delete Application">
+                                                        <i class="fas fa-trash-alt me-1"></i> Delete
                                                     </a>
                                                 </div>
                                             </td>
@@ -725,14 +745,15 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <div class="row g-2 mb-3">
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Designation / Role</label>
-                                <select class="form-select" name="designation">
-                                    <option value="Pickup Associate">Pickup Associate</option>
-                                    <option value="Delivery Associate">Delivery Associate</option>
-                                    <option value="Operations Assistant">Operations Assistant</option>
-                                    <option value="Warehouse Executive">Warehouse Executive</option>
-                                    <option value="Hub Incharge">Hub Incharge</option>
-                                    <option value="Customer Support Executive">Customer Support Executive</option>
-                                </select>
+                                <input type="text" class="form-control" name="designation" list="inviteDesignationList" placeholder="e.g. Pickup Associate" value="Pickup Associate">
+                                <datalist id="inviteDesignationList">
+                                    <option value="Pickup Associate">
+                                    <option value="Delivery Associate">
+                                    <option value="Operations Assistant">
+                                    <option value="Warehouse Executive">
+                                    <option value="Hub Incharge">
+                                    <option value="Customer Support Executive">
+                                </datalist>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold small">Department</label>
@@ -762,8 +783,77 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
+    <!-- OCR UPLOAD MODAL (MANAGEMENT LEVEL) -->
+    <div class="modal fade" id="ocrUploadModal" tabindex="-1" aria-labelledby="ocrUploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header bg-dark text-white border-0 py-3 px-4">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-primary bg-opacity-25 p-2 me-3">
+                            <i class="fas fa-magic text-primary fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold mb-0" id="ocrUploadModalLabel">Upload Written Form</h5>
+                            <small class="text-white-50">Upload scanned PDF or photo of physical paper form</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="closeOcrModal()"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div id="ocrUploadFormArea">
+                        <!-- Drag & Drop Zone -->
+                        <div id="ocrDropZone" class="border border-2 border-dashed rounded-4 p-4 text-center cursor-pointer mb-3" style="border-color: #cbd5e1; background: #f8fafc; cursor: pointer;">
+                            <div class="mb-3">
+                                <i class="fas fa-cloud-upload-alt text-primary" style="font-size: 3rem;"></i>
+                            </div>
+                            <h6 class="fw-bold mb-1">Drag and drop your written form here, or click to browse</h6>
+                            <p class="text-muted small mb-2">Supports multi-page scanned PDF or photos (JPG, PNG, WebP up to 25MB)</p>
+                            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3">
+                                <i class="fas fa-folder-open me-1"></i> Choose File
+                            </button>
+                            <input type="file" id="ocrFileInput" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display: none;">
+                        </div>
+
+                        <!-- File Selected Indicator -->
+                        <div id="ocrFileInfo" class="alert alert-light border d-flex align-items-center justify-content-between p-2 px-3 rounded-3 mb-3" style="display: none;">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-file-pdf text-danger fs-4 me-2"></i>
+                                <div>
+                                    <strong id="ocrSelectedFileName" class="text-truncate d-inline-block" style="max-width: 380px;"></strong>
+                                    <small id="ocrSelectedFileSize" class="text-muted ms-2"></small>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm text-danger" onclick="document.getElementById('ocrFileInput').value = ''; document.getElementById('ocrFileInfo').style.display = 'none'; document.getElementById('btnStartOcrUpload').disabled = true;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Progress / Processing State -->
+                    <div id="ocrProgressContainer" style="display: none;" class="py-4 text-center">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Processing...</span>
+                        </div>
+                        <h6 class="fw-bold mb-2" id="ocrStatusText">Uploading document...</h6>
+                        <div class="progress rounded-pill mb-2" style="height: 10px;">
+                            <div id="ocrProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 20%;"></div>
+                        </div>
+                        <small class="text-muted">Analyzing handwriting and mapping fields. This typically takes 3-6 seconds.</small>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0 py-3 px-4 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal" onclick="closeOcrModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-5 fw-bold" id="btnStartOcrUpload" onclick="startOcrProcessing()" disabled>
+                        <i class="fas fa-check-circle me-1"></i> Submit
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../../assets/js/form_autofill.js"></script>
     <script>
         function copyLink(url) {
             navigator.clipboard.writeText(url).then(function() {
@@ -776,15 +866,16 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
         function switchView(view) {
             const listEl = document.getElementById('listViewContainer');
             const formEl = document.getElementById('formViewContainer');
-            const btnList = document.getElementById('btnListView');
             const btnForm = document.getElementById('btnFormView');
 
             if (view === 'form') {
                 listEl.style.display = 'none';
                 formEl.style.display = 'block';
-                if (btnList && btnForm) {
-                    btnList.className = 'btn btn-sm rounded-pill px-3 fw-bold text-muted btn-light';
-                    btnForm.className = 'btn btn-sm rounded-pill px-3 fw-bold btn-primary';
+                if (btnForm) {
+                    btnForm.innerHTML = '<i class="fas fa-arrow-left me-1"></i> Back to List';
+                    btnForm.setAttribute('onclick', "switchView('list')");
+                    btnForm.classList.remove('btn-primary-shade');
+                    btnForm.classList.add('btn-secondary-shade');
                 }
                 const iframe = document.getElementById('inlineJoiningIframe');
                 if (iframe && iframe.contentWindow) {
@@ -801,9 +892,11 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
                 formEl.style.display = 'none';
                 listEl.style.display = 'block';
-                if (btnList && btnForm) {
-                    btnForm.className = 'btn btn-sm rounded-pill px-3 fw-bold text-muted btn-light';
-                    btnList.className = 'btn btn-sm rounded-pill px-3 fw-bold btn-primary';
+                if (btnForm) {
+                    btnForm.innerHTML = '<i class="fas fa-file-signature me-1"></i> Blank Joining Form';
+                    btnForm.setAttribute('onclick', "switchView('form')");
+                    btnForm.classList.remove('btn-secondary-shade');
+                    btnForm.classList.add('btn-primary-shade');
                 }
                 window.scrollTo({ top: 120, behavior: 'smooth' });
             }
@@ -813,6 +906,17 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
             const iframe = document.getElementById('inlineJoiningIframe');
             if (iframe) {
                 iframe.src = '../../joining_form.php?embedded=1&fresh=' + Date.now();
+            }
+        }
+
+        function openWrittenFormUpload() {
+            const modalEl = document.getElementById('ocrUploadModal');
+            if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            } else if (modalEl) {
+                modalEl.style.display = 'block';
+                modalEl.classList.add('show');
             }
         }
 
@@ -828,6 +932,8 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 if (formContainer && formContainer.style.display !== 'none') {
                     window.scrollTo({ top: 120, behavior: 'smooth' });
                 }
+            } else if (e.data && e.data.type === 'vk_open_ocr_modal') {
+                openWrittenFormUpload();
             }
         });
 
