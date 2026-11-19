@@ -108,7 +108,14 @@ $safe_filename = 'scan_' . ($app_id ?: 'temp') . '_' . time() . '_' . bin2hex(ra
 $dest_path = $upload_dir . $safe_filename;
 $relative_path = 'uploads/scanned_forms/' . $safe_filename;
 
-if (!move_uploaded_file($file_tmp, $dest_path)) {
+$saved = false;
+if (is_uploaded_file($file_tmp)) {
+    $saved = move_uploaded_file($file_tmp, $dest_path);
+} else {
+    $saved = copy($file_tmp, $dest_path);
+}
+
+if (!$saved) {
     http_response_code(500);
     $response['message'] = 'Failed to save uploaded document to server storage.';
     echo json_encode($response);
@@ -176,6 +183,7 @@ SCHEMA:
     "email": "",
     "designation": "",
     "joining_date": "YYYY-MM-DD",
+    "nationality": "Indian",
     "blood_group": "",
     "previous_work_experience": "",
     "employee_type": "new_joiner",
@@ -187,7 +195,7 @@ SCHEMA:
     "village_town": "",
     "mandal": "",
     "district": "",
-    "state": "Telangana",
+    "state": "",
     "pincode": ""
   },
   "permanent_address": {
@@ -197,7 +205,7 @@ SCHEMA:
     "village_town": "",
     "mandal": "",
     "district": "",
-    "state": "Telangana",
+    "state": "",
     "pincode": ""
   },
   "identity": {
@@ -314,88 +322,101 @@ EOT;
         echo json_encode($response);
         exit;
     } else {
-        // If API key was invalid or quota exceeded, record error and proceed to smart fallback
+        // If API key was invalid or quota exceeded, record warning
         $response['api_warning'] = $api_error;
     }
 }
 
-// Smart Fallback / Demo Mode (When API key is not yet set or during testing)
+// -------------------------------------------------------------------------
+// REAL DOCUMENT EXTRACTION (NO HARDCODED / FIXED MOCK DATA)
+// -------------------------------------------------------------------------
+
+// If uploaded document is a PDF, invoke our Python PDF text & form field parser
+if ($file_ext === 'pdf') {
+    $py_script = __DIR__ . '/pdf_extractor.py';
+    $cmd = 'python3 ' . escapeshellarg($py_script) . ' ' . escapeshellarg($dest_path);
+    $output = shell_exec($cmd);
+    
+    if (!empty($output)) {
+        $py_data = json_decode($output, true);
+        if ($py_data && isset($py_data['success']) && $py_data['success']) {
+            $response['success'] = true;
+            $response['mode'] = ($py_data['filled_count'] > 0) ? 'pdf_extracted' : 'pdf_template';
+            $response['message'] = $py_data['message'];
+            $response['extracted_data'] = $py_data['extracted_data'];
+            echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+}
+
+// Default clean empty structure (never use hardcoded fake data)
 $response['success'] = true;
-$response['mode'] = 'demo_fallback';
-$response['message'] = 'Document uploaded and archived. Structured fields extracted in sample/demo mode. (To activate live Google Gemini Vision AI, define GEMINI_API_KEY in config.php).';
+$response['mode'] = 'document_archived';
+$response['message'] = 'Document successfully uploaded and archived. No pre-filled text entries were detected. (To enable handwriting AI recognition for physical paper scans, provide a Gemini API Key).';
 
 $response['extracted_data'] = [
     'personal' => [
-        'full_name' => 'Katta Ramesh',
-        'father_name' => 'Katta Venkatesh',
-        'dob' => '1998-05-14',
-        'gender' => 'male',
-        'mobile' => '9876543210',
-        'alternate_mobile' => '9848012345',
-        'email' => 'ramesh.katta@example.com',
-        'designation' => 'Pickup Associate',
-        'joining_date' => date('Y-m-d'),
-        'blood_group' => 'O+',
-        'previous_work_experience' => '2 years in logistics & parcel delivery at Hyderabad hub',
-        'employee_type' => 'new_joiner',
+        'full_name' => '',
+        'father_name' => '',
+        'dob' => '',
+        'gender' => '',
+        'mobile' => '',
+        'alternate_mobile' => '',
+        'email' => '',
+        'designation' => '',
+        'joining_date' => '',
+        'blood_group' => '',
+        'previous_work_experience' => '',
+        'employee_type' => '',
         'employee_id' => ''
     ],
     'present_address' => [
-        'house_flat_no' => 'D.No 4-52/1',
-        'street_area' => 'Main Road, Near Bus Stand',
-        'village_town' => 'Medchal',
-        'mandal' => 'Medchal',
-        'district' => 'Medchal-Malkajgiri',
-        'state' => 'Telangana',
-        'pincode' => '501401'
+        'house_flat_no' => '',
+        'street_area' => '',
+        'village_town' => '',
+        'mandal' => '',
+        'district' => '',
+        'state' => '',
+        'pincode' => ''
     ],
     'permanent_address' => [
         'same_as_present' => true,
-        'house_flat_no' => 'D.No 4-52/1',
-        'street_area' => 'Main Road, Near Bus Stand',
-        'village_town' => 'Medchal',
-        'mandal' => 'Medchal',
-        'district' => 'Medchal-Malkajgiri',
-        'state' => 'Telangana',
-        'pincode' => '501401'
+        'house_flat_no' => '',
+        'street_area' => '',
+        'village_town' => '',
+        'mandal' => '',
+        'district' => '',
+        'state' => '',
+        'pincode' => ''
     ],
     'identity' => [
-        'aadhaar_number' => '987654321098',
-        'other_id_type' => 'PAN Card',
-        'other_id_number' => 'ABCDE1234F',
-        'docs_submitted' => ['Aadhaar Card', 'PAN Card', 'Bank Passbook']
+        'aadhaar_number' => '',
+        'other_id_type' => '',
+        'other_id_number' => '',
+        'docs_submitted' => []
     ],
     'emergency_contact' => [
-        'name' => 'Katta Venkatesh',
-        'relationship' => 'Father',
-        'mobile' => '9848012345',
-        'alternate_mobile' => '9876543210',
-        'address' => 'D.No 4-52/1, Main Road, Medchal, Telangana - 501401'
+        'name' => '',
+        'relationship' => '',
+        'mobile' => '',
+        'alternate_mobile' => '',
+        'address' => ''
     ],
     'references' => [
-        [
-            'name' => 'P. Suresh',
-            'relationship' => 'Former Hub Supervisor',
-            'mobile' => '9848099887',
-            'address' => 'Kompally, Hyderabad'
-        ],
-        [
-            'name' => 'M. Krishna',
-            'relationship' => 'Neighbour / Village Elder',
-            'mobile' => '9848011223',
-            'address' => 'Medchal'
-        ]
+        ['name' => '', 'relationship' => '', 'mobile' => '', 'address' => ''],
+        ['name' => '', 'relationship' => '', 'mobile' => '', 'address' => '']
     ],
     'previous_employment' => [
-        'employer_name' => 'Express Cargo & Parcel Logistics',
-        'designation' => 'Delivery Boy / Associate',
-        'employer_phone' => '040-23456789',
-        'reason_for_leaving' => 'Looking for better career growth and fixed monthly incentive'
+        'employer_name' => '',
+        'designation' => '',
+        'employer_phone' => '',
+        'reason_for_leaving' => ''
     ],
     'declarations' => [
-        'terms_acknowledged' => true,
-        'data_consent_acknowledged' => true,
-        'pickup_policy_acknowledged' => true
+        'terms_acknowledged' => false,
+        'data_consent_acknowledged' => false,
+        'pickup_policy_acknowledged' => false
     ]
 ];
 

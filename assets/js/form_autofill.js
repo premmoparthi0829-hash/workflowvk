@@ -243,10 +243,10 @@
 
                 setTimeout(() => {
                     updateProgress(100, 'Populating digital form fields!');
-                    window.populateFormWithData(data.extracted_data);
+                    const filledCount = window.populateFormWithData(data.extracted_data);
                     window.closeOcrModal();
                     resetOcrModalState();
-                    window.showAutofillSuccessBanner(data.mode, data.message);
+                    window.showAutofillSuccessBanner(data.mode, data.message, filledCount);
                 }, 600);
             }
         })
@@ -278,8 +278,8 @@
             const btnToggle = document.getElementById('btnToggleScanView');
             if (btnToggle) btnToggle.style.display = 'inline-flex';
         }
-        window.populateFormWithData(data);
-        window.showAutofillSuccessBanner(mode, message);
+        const filledCount = window.populateFormWithData(data);
+        window.showAutofillSuccessBanner(mode, message, filledCount);
     };
 
     // Populate Fields Across All 5 Tabs
@@ -345,6 +345,7 @@
             setSelectClosest('select[name="blood_group"]', p.blood_group);
             setVal('input[name="previous_work_experience"]', p.previous_work_experience);
             setVal('input[name="joining_date"]', p.joining_date);
+            setVal('input[name="nationality"]', p.nationality || 'Indian');
             setVal('input[name="employee_id"]', p.employee_id);
 
             if (p.designation) {
@@ -474,46 +475,75 @@
         if (typeof window.notifyParentOfResize === 'function') {
             window.notifyParentOfResize();
         }
+
+        return filledCount;
     };
 
-    window.showAutofillSuccessBanner = function(mode, message) {
+    window.showAutofillSuccessBanner = function(mode, message, filledCount) {
         let banner = document.getElementById('ocrAutofillBanner');
         if (!banner) {
             banner = document.createElement('div');
             banner.id = 'ocrAutofillBanner';
-            banner.className = 'alert alert-success alert-dismissible fade show shadow-sm mb-3 mt-2';
-            banner.style.borderLeft = '5px solid #28a745';
+            banner.className = 'alert alert-dismissible fade show shadow-sm mb-3 mt-2';
             
             const targetContainer = document.querySelector('.bel-content-wrapper') || document.body;
             targetContainer.insertBefore(banner, targetContainer.firstChild);
         }
 
-        const isLive = mode === 'gemini_live';
-        const badgeHtml = isLive 
-            ? '<span class="badge bg-success ms-2"><i class="fas fa-check-circle me-1"></i> Document Processed</span>'
-            : '<span class="badge bg-info text-dark ms-2"><i class="fas fa-check-circle me-1"></i> Document Processed</span>';
+        const count = typeof filledCount === 'number' ? filledCount : 0;
+        const hasFilled = count > 0;
 
-        banner.innerHTML = `
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-check-circle fs-3 text-success me-3"></i>
-                    <div>
-                        <h6 class="alert-heading fw-bold mb-1">
-                            Form Loaded from Uploaded Document! ${badgeHtml}
-                        </h6>
-                        <p class="mb-0 small text-dark">
-                            Handwritten values have been populated into the fields below. Highlighted fields can be inspected and edited as needed before saving.
-                        </p>
+        if (hasFilled) {
+            banner.className = 'alert alert-success alert-dismissible fade show shadow-sm mb-3 mt-2';
+            banner.style.borderLeft = '5px solid #10b981';
+            banner.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-check-circle fs-3 text-success me-3"></i>
+                        <div>
+                            <h6 class="alert-heading fw-bold mb-1">
+                                Real Data Extracted from Document! 
+                                <span class="badge bg-success ms-2"><i class="fas fa-magic me-1"></i> ${count} Field(s) Found</span>
+                            </h6>
+                            <p class="mb-0 small text-dark">
+                                Real values found in the uploaded file were populated. Highlighted fields can be inspected and edited as needed.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-success btn-sm rounded-pill fw-bold" onclick="toggleScanViewer()">
+                            <i class="fas fa-eye me-1"></i> Compare with Document
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
                 </div>
-                <div class="d-flex align-items-center gap-2">
-                    <button type="button" class="btn btn-outline-success btn-sm rounded-pill fw-bold" onclick="toggleScanViewer()">
-                        <i class="fas fa-eye me-1"></i> Compare with Scan
-                    </button>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+        } else {
+            banner.className = 'alert alert-info alert-dismissible fade show shadow-sm mb-3 mt-2';
+            banner.style.borderLeft = '5px solid #0284c7';
+            banner.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-file-alt fs-3 text-info me-3"></i>
+                        <div>
+                            <h6 class="alert-heading fw-bold mb-1 text-dark">
+                                Document Uploaded & Attached
+                                <span class="badge bg-secondary ms-2">Clean Form</span>
+                            </h6>
+                            <p class="mb-0 small text-dark">
+                                ${message || 'Document uploaded and archived. No pre-filled handwritten values detected in this document. Form is clean and ready for manual input.'}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-primary btn-sm rounded-pill fw-bold" onclick="toggleScanViewer()">
+                            <i class="fas fa-eye me-1"></i> View Attached Scan
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
     };
 
     // Side-by-side Scan Viewer Toggle

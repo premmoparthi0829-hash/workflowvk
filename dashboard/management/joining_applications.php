@@ -126,14 +126,15 @@ if (isset($_GET['delete_id'])) {
     }
 }
 
-// Clean up any unsubmitted invite / sent_to_employee records
+// Clean up any unsubmitted invite / sent_to_employee records or untouched blank drafts
 try {
     $db->exec("DELETE FROM employee_joining_applications WHERE status = 'sent_to_employee'");
+    $db->exec("DELETE FROM employee_joining_applications WHERE status = 'in_progress' AND id NOT IN (SELECT application_id FROM employee_personal_details WHERE full_name IS NOT NULL AND TRIM(full_name) != '')");
 } catch (Exception $e) {
     // Ignore if constraint error
 }
 
-// Calculate Summary Statistics
+// Calculate Summary Statistics (Excluding empty untouched drafts)
 $metrics = [
     'total' => 0,
     'pending' => 0,
@@ -142,7 +143,12 @@ $metrics = [
     'rejected' => 0
 ];
 
-$stmt = $db->query("SELECT status, COUNT(*) as cnt FROM employee_joining_applications WHERE status != 'sent_to_employee' GROUP BY status");
+$stmt = $db->query("SELECT a.status, COUNT(*) as cnt 
+                   FROM employee_joining_applications a 
+                   LEFT JOIN employee_personal_details p ON a.id = p.application_id 
+                   WHERE a.status != 'sent_to_employee' 
+                     AND (a.status != 'in_progress' OR (p.full_name IS NOT NULL AND TRIM(p.full_name) != ''))
+                   GROUP BY a.status");
 while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     $st = $row['status'];
     $cnt = intval($row['cnt']);
@@ -202,7 +208,8 @@ $sql = "SELECT
         LEFT JOIN employee_personal_details p ON a.id = p.application_id
         LEFT JOIN departments d ON p.department_id = d.id
         LEFT JOIN employee_joining_approvals ap ON a.id = ap.application_id
-        WHERE a.status != 'sent_to_employee'";
+        WHERE a.status != 'sent_to_employee'
+          AND (a.status != 'in_progress' OR (p.full_name IS NOT NULL AND TRIM(p.full_name) != ''))";
 
 $params = [];
 
@@ -684,7 +691,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                     <a href="../../joining_form.php?token=<?php echo urlencode($app['token']); ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" title="Edit Application Form">
                                                         <i class="fas fa-edit me-1"></i> Edit
                                                     </a>
-                                                    <a href="joining_pdf.php?id=<?php echo $app['id']; ?>&token=<?php echo urlencode($app['token']); ?>" target="_blank" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" title="View / Print PDF Document">
+                                                    <a href="joining_pdf.php?id=<?php echo $app['id']; ?>&token=<?php echo urlencode($app['token']); ?>&auto_print=1" target="_blank" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" title="View / Print PDF Document">
                                                         <i class="fas fa-file-pdf text-danger me-1"></i> PDF
                                                     </a>
                                                     <a href="joining_applications.php?delete_id=<?php echo $app['id']; ?>" class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1 fw-semibold d-inline-flex align-items-center" onclick="return confirm('Are you sure you want to delete application #<?php echo $app['application_no']; ?>?');" title="Delete Application">
@@ -705,7 +712,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <!-- 2. IN-PAGE FORM VIEW CONTAINER (NO REDIRECTS - AUTO SIZED, SINGLE SCROLLBAR) -->
                 <div id="formViewContainer" style="display: none;">
                     <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
-                        <iframe id="inlineJoiningIframe" src="../../joining_form.php?embedded=1" scrolling="no" style="width: 100%; min-height: 850px; border: none; display: block; overflow: hidden;"></iframe>
+                        <iframe id="inlineJoiningIframe" src="about:blank" data-src="../../joining_form.php?embedded=1" scrolling="no" style="width: 100%; min-height: 850px; border: none; display: block; overflow: hidden;"></iframe>
                     </div>
                 </div>
 
@@ -728,7 +735,7 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         
                         <div class="mb-3">
                             <label class="form-label fw-bold small">Candidate Full Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="candidate_name" required placeholder="e.g. Ramesh Kumar">
+                            <input type="text" class="form-control" name="candidate_name" required placeholder="e.g. Candidate Name">
                         </div>
 
                         <div class="row g-2 mb-3">
@@ -851,6 +858,59 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     </div>
 
+    <!-- Real-Time PDF Preview Modal -->
+    <div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-labelledby="pdfPreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen-lg-down modal-xl modal-dialog-centered" style="max-width: 95vw; height: 92vh;">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style="height: 100%; display: flex; flex-direction: column;">
+                <div class="modal-header bg-dark text-white border-0 py-2 px-4 d-flex align-items-center justify-content-between flex-shrink-0">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-danger bg-opacity-25 p-2 me-2 text-danger">
+                            <i class="fas fa-file-pdf fs-5"></i>
+                        </div>
+                        <div>
+                            <h6 class="modal-title fw-bold mb-0 text-white" id="pdfPreviewModalLabel">Live PDF Preview - Employee Joining Document</h6>
+                            <small class="text-white-50">Instant preview with your currently entered form data (Pages 1 - 9)</small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" onclick="printPdfPreviewFrame()">
+                            <i class="fas fa-download me-1"></i> Download / Print PDF
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-light rounded-pill px-3" onclick="openPdfPreviewNewTab()">
+                            <i class="fas fa-external-link-alt me-1"></i> New Tab
+                        </button>
+                        <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="modal" onclick="closePdfPreviewModal()"></button>
+                    </div>
+                </div>
+                <div class="modal-body p-0 flex-grow-1" style="height: calc(100% - 60px); background: #cbd5e1;">
+                    <iframe id="pdfPreviewFrame" name="pdfPreviewFrame" style="width: 100%; height: 100%; border: none; background: #cbd5e1;"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Validation Toast Notification (Visible Without Scroll) -->
+    <div id="vkParentToast" style="display: none; position: fixed; top: 22px; right: 24px; z-index: 9999999; max-width: 440px; width: calc(100vw - 48px); background: #ffffff; color: #1e293b; border-radius: 12px; box-shadow: 0 14px 35px rgba(0,0,0,0.22), 0 3px 10px rgba(0,0,0,0.06); border-left: 5px solid #ef4444; padding: 14px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; animation: vkParentToastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="background: #fee2e2; color: #dc2626; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; margin-top: 1px;">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div>
+                    <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">Required Field / తప్పనిసరి వివరాలు</div>
+                    <div id="vkParentToastMsg" style="font-size: 13px; color: #475569; margin-top: 3px; line-height: 1.45;"></div>
+                </div>
+            </div>
+            <button type="button" onclick="hideParentToast()" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; border-radius: 4px;" title="Close">&times;</button>
+        </div>
+    </div>
+    <style>
+        @keyframes vkParentToastIn {
+            from { opacity: 0; transform: translateY(-20px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+    </style>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../../assets/js/form_autofill.js"></script>
@@ -878,15 +938,20 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     btnForm.classList.add('btn-secondary-shade');
                 }
                 const iframe = document.getElementById('inlineJoiningIframe');
-                if (iframe && iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({ type: 'vk_request_height' }, '*');
-                    try {
-                        const doc = iframe.contentDocument || iframe.contentWindow.document;
-                        if (doc && doc.body) {
-                            const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-                            if (h > 300) iframe.style.height = (h + 40) + 'px';
-                        }
-                    } catch(e) {}
+                if (iframe) {
+                    if (!iframe.src || iframe.src === 'about:blank' || iframe.src.indexOf('joining_form.php') === -1) {
+                        iframe.src = iframe.getAttribute('data-src') || '../../joining_form.php?embedded=1';
+                    }
+                    if (iframe.contentWindow) {
+                        iframe.contentWindow.postMessage({ type: 'vk_request_height' }, '*');
+                        try {
+                            const doc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (doc && doc.body) {
+                                const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+                                if (h > 300) iframe.style.height = (h + 40) + 'px';
+                            }
+                        } catch(e) {}
+                    }
                 }
                 window.scrollTo({ top: 120, behavior: 'smooth' });
             } else {
@@ -934,8 +999,246 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 }
             } else if (e.data && e.data.type === 'vk_open_ocr_modal') {
                 openWrittenFormUpload();
+            } else if (e.data && e.data.type === 'vk_open_pdf_preview') {
+                renderLocalPdfPreview(e.data.formData);
+            } else if (e.data && e.data.type === 'vk_show_toast') {
+                showParentToast(e.data.message);
             }
         });
+
+        let parentToastTimer = null;
+        function hideParentToast() {
+            const toast = document.getElementById('vkParentToast');
+            if (toast) toast.style.display = 'none';
+            if (parentToastTimer) {
+                clearTimeout(parentToastTimer);
+                parentToastTimer = null;
+            }
+        }
+
+        function showParentToast(msg) {
+            const toast = document.getElementById('vkParentToast');
+            const msgEl = document.getElementById('vkParentToastMsg');
+            if (toast && msgEl) {
+                msgEl.innerHTML = msg;
+                toast.style.display = 'block';
+                if (parentToastTimer) clearTimeout(parentToastTimer);
+                parentToastTimer = setTimeout(hideParentToast, 4500);
+            }
+        }
+
+        let currentPdfPreviewHtml = '';
+        let currentPdfPreviewPayload = null;
+
+        function renderLocalPdfPreview(formObj) {
+            const modalEl = document.getElementById('pdfPreviewModal');
+            if (!modalEl) return;
+
+            currentPdfPreviewPayload = formObj;
+
+            // Show modal immediately
+            if (window.bootstrap && window.bootstrap.Modal) {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            } else {
+                modalEl.style.display = 'block';
+                modalEl.classList.add('show');
+            }
+
+            const frame = document.getElementById('pdfPreviewFrame');
+            if (frame) {
+                // Sleek loading animation inside iframe so it is never blank
+                frame.srcdoc = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                        <style>
+                            body {
+                                margin: 0;
+                                padding: 0;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+                                min-height: 100vh;
+                                background: #f1f5f9;
+                                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                                color: #334155;
+                            }
+                            .loader-card {
+                                background: #ffffff;
+                                padding: 32px 48px;
+                                border-radius: 16px;
+                                box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                text-align: center;
+                                max-width: 420px;
+                            }
+                            .spinner {
+                                width: 48px;
+                                height: 48px;
+                                border: 4px solid #e2e8f0;
+                                border-top-color: #dc2626;
+                                border-radius: 50%;
+                                animation: spin 0.8s linear infinite;
+                                margin-bottom: 20px;
+                            }
+                            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="loader-card">
+                            <div class="spinner"></div>
+                            <div style="font-weight: 700; font-size: 17px; color: #0f172a;">Generating Live PDF Preview...</div>
+                            <div style="font-size: 13px; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                                Assembling all 9 bilingual pages with your current form data.
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                `;
+            }
+
+            // Prepare FormData
+            const fd = new FormData();
+            for (let k in formObj) {
+                if (formObj.hasOwnProperty(k) && formObj[k] !== undefined && formObj[k] !== null) {
+                    fd.append(k, formObj[k]);
+                }
+            }
+
+            const endpoint = window.location.origin + '/dashboard/management/joining_pdf.php';
+
+            fetch(endpoint, {
+                method: 'POST',
+                body: fd
+            })
+            .then(function(res) {
+                if (!res.ok) {
+                    throw new Error('Server returned HTTP ' + res.status);
+                }
+                return res.text();
+            })
+            .then(function(html) {
+                currentPdfPreviewHtml = html;
+                if (frame) {
+                    frame.srcdoc = html;
+                }
+            })
+            .catch(function(err) {
+                console.error('PDF Preview Fetch Failed:', err);
+                if (frame) {
+                    frame.srcdoc = `
+                        <div style="padding: 40px; text-align: center; font-family: sans-serif; color: #dc2626;">
+                            <div style="font-size: 36px; margin-bottom: 12px;"><i class="fas fa-exclamation-triangle"></i></div>
+                            <h3 style="margin-bottom: 8px;">Unable to load PDF preview</h3>
+                            <p style="color: #64748b; font-size: 14px;">${err.message}</p>
+                        </div>
+                    `;
+                }
+            });
+        }
+
+        function openPdfPreviewNewTab() {
+            if (currentPdfPreviewHtml) {
+                const blob = new Blob([currentPdfPreviewHtml], { type: 'text/html; charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const win = window.open(url, '_blank');
+                if (win) return;
+            }
+            // Fallback: POST via hidden form targeting _blank
+            let prevForm = document.getElementById('hiddenPdfPreviewForm');
+            if (!prevForm) {
+                prevForm = document.createElement('form');
+                prevForm.id = 'hiddenPdfPreviewForm';
+                prevForm.method = 'POST';
+                prevForm.action = window.location.origin + '/dashboard/management/joining_pdf.php';
+                prevForm.target = '_blank';
+                prevForm.style.display = 'none';
+                document.body.appendChild(prevForm);
+            }
+            prevForm.innerHTML = '';
+            if (currentPdfPreviewPayload) {
+                for (let k in currentPdfPreviewPayload) {
+                    const inp = document.createElement('input');
+                    inp.type = 'hidden';
+                    inp.name = k;
+                    inp.value = currentPdfPreviewPayload[k];
+                    prevForm.appendChild(inp);
+                }
+            }
+            prevForm.submit();
+        }
+
+        function printPdfPreviewFrame() {
+            const frame = document.getElementById('pdfPreviewFrame');
+
+            // 1. Tell iframe to print itself via postMessage
+            if (frame && frame.contentWindow) {
+                try {
+                    frame.contentWindow.postMessage({ type: 'vk_trigger_print' }, '*');
+                } catch(e) {}
+            }
+
+            // 2. Open printable window with the PDF content and auto-trigger print dialog
+            if (currentPdfPreviewHtml) {
+                const printWin = window.open('', '_blank');
+                if (printWin) {
+                    printWin.document.open();
+                    let htmlWithPrint = currentPdfPreviewHtml;
+                    if (htmlWithPrint.indexOf('auto_print') === -1) {
+                        htmlWithPrint = htmlWithPrint.replace('</body>', '<script>window.addEventListener("load", function(){ setTimeout(function(){ window.focus(); window.print(); }, 400); });<\/script></body>');
+                    }
+                    printWin.document.write(htmlWithPrint);
+                    printWin.document.close();
+                    return;
+                }
+            }
+
+            // 3. Fallback: Form submit to new tab with auto_print=1
+            let prevForm = document.getElementById('hiddenPdfPrintForm');
+            if (!prevForm) {
+                prevForm = document.createElement('form');
+                prevForm.id = 'hiddenPdfPrintForm';
+                prevForm.method = 'POST';
+                prevForm.action = window.location.origin + '/dashboard/management/joining_pdf.php';
+                prevForm.target = '_blank';
+                prevForm.style.display = 'none';
+                document.body.appendChild(prevForm);
+            }
+            prevForm.innerHTML = '';
+            if (currentPdfPreviewPayload) {
+                for (let k in currentPdfPreviewPayload) {
+                    const inp = document.createElement('input');
+                    inp.type = 'hidden';
+                    inp.name = k;
+                    inp.value = currentPdfPreviewPayload[k];
+                    prevForm.appendChild(inp);
+                }
+            }
+            const autoInp = document.createElement('input');
+            autoInp.type = 'hidden';
+            autoInp.name = 'auto_print';
+            autoInp.value = '1';
+            prevForm.appendChild(autoInp);
+            prevForm.submit();
+        }
+
+        function closePdfPreviewModal() {
+            const modalEl = document.getElementById('pdfPreviewModal');
+            if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            } else if (modalEl) {
+                modalEl.style.display = 'none';
+                modalEl.classList.remove('show');
+                const bdrop = document.querySelector('.modal-backdrop');
+                if (bdrop) bdrop.remove();
+            }
+        }
 
         // Direct same-origin iframe height on load
         document.addEventListener('DOMContentLoaded', function() {

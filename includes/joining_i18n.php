@@ -37,6 +37,7 @@ class JoiningI18n {
             'designation' => 'Designation / job role',
             'department' => 'Department',
             'date_of_joining' => 'Date of joining',
+            'nationality' => 'Nationality',
             'blood_group' => 'Blood group (optional)',
             'previous_experience' => 'Previous work experience',
             
@@ -219,6 +220,7 @@ class JoiningI18n {
             'designation' => 'ఉద్యోగ హోదా',
             'department' => 'విభాగం',
             'date_of_joining' => 'ఉద్యోగంలో చేరిన తేదీ',
+            'nationality' => 'జాతీయత',
             'blood_group' => 'రక్త వర్గం (ఐచ్ఛికం)',
             'previous_experience' => 'గత ఉద్యోగ అనుభవం',
             

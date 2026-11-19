@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS `employee_personal_details` (
   `department_id` INT NULL,
   `joining_date` DATE NULL,
   `blood_group` VARCHAR(10) NULL,
+  `nationality` VARCHAR(100) NULL DEFAULT 'Indian',
   `previous_work_experience` TEXT NULL,
   `photo_path` VARCHAR(255) NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -258,6 +259,11 @@ CREATE TABLE IF NOT EXISTS `employee_identity_documents` (
   `other_id_type` VARCHAR(50) NULL,
   `other_id_number` VARCHAR(50) NULL,
   `documents_submitted` TEXT NULL,
+  `bank_holder_name` VARCHAR(150) NULL,
+  `bank_name` VARCHAR(100) NULL,
+  `bank_branch` VARCHAR(100) NULL,
+  `bank_account_no` VARCHAR(50) NULL,
+  `bank_ifsc` VARCHAR(20) NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (`application_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

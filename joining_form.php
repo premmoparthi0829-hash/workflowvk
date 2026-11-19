@@ -152,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
     $designation = trim($_POST['designation'] ?? '');
     $department_id = !empty($_POST['department_id']) ? intval($_POST['department_id']) : null;
     $joining_date = trim($_POST['joining_date'] ?? '');
+    $nationality = trim($_POST['nationality'] ?? 'Indian');
     $blood_group = trim($_POST['blood_group'] ?? '');
     $previous_work_experience = trim($_POST['previous_work_experience'] ?? '');
     
@@ -201,14 +202,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
         ? implode(', ', $_POST['docs_submitted']) 
         : trim($_POST['documents_submitted'] ?? '');
         
-    // Emergency contact
+    // Bank details (Mandatory)
+    $bank_holder_name = trim($_POST['bank_holder_name'] ?? '');
+    $bank_name = trim($_POST['bank_name'] ?? '');
+    $bank_branch = trim($_POST['bank_branch'] ?? '');
+    $bank_account_no = trim($_POST['bank_account_no'] ?? '');
+    $bank_ifsc = strtoupper(trim($_POST['bank_ifsc'] ?? ''));
+        
+    // Emergency contact (Mandatory)
     $emg_name = trim($_POST['emergency_name'] ?? '');
     $emg_rel = trim($_POST['emergency_rel'] ?? '');
     $emg_mobile = trim($_POST['emergency_mobile'] ?? '');
     $emg_alt_mobile = trim($_POST['emergency_alt_mobile'] ?? '');
     $emg_address = trim($_POST['emergency_address'] ?? '');
     
-    // References
+    // References (Optional / Skippable)
     $ref1_name = trim($_POST['ref1_name'] ?? '');
     $ref1_rel = trim($_POST['ref1_rel'] ?? '');
     $ref1_mobile = trim($_POST['ref1_mobile'] ?? '');
@@ -219,13 +227,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
     $ref2_mobile = trim($_POST['ref2_mobile'] ?? '');
     $ref2_address = trim($_POST['ref2_address'] ?? '');
     
-    // Previous employment
+    // Previous employment (Optional / Skippable)
     $prev_employer = trim($_POST['prev_employer'] ?? '');
     $prev_desig = trim($_POST['prev_desig'] ?? '');
     $prev_phone = trim($_POST['prev_phone'] ?? '');
     $prev_reason = trim($_POST['prev_reason'] ?? '');
     
-    // Declarations & Policies
+    // Declarations & Policies (All Ticks Mandatory)
     $terms_ack = isset($_POST['terms_acknowledged']) ? 1 : 0;
     $data_consent = isset($_POST['data_consent_acknowledged']) ? 1 : 0;
     $pickup_policy_ack = isset($_POST['pickup_policy_acknowledged']) ? 1 : 0;
@@ -236,24 +244,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
     
     // Mandatory checks if final submit
     if ($action === 'submit_form') {
+        // Personal details all mandatory
         if (empty($full_name)) $errors[] = "Full Name is required / పూర్తి పేరు అవసరం.";
         if (empty($father_name)) $errors[] = "Father's Name is required / తండ్రి పేరు అవసరం.";
         if (empty($dob)) $errors[] = "Date of Birth is required / పుట్టిన తేదీ అవసరం.";
-        if (empty($mobile)) $errors[] = "Mobile Number is required / మొబైల్ నంబర్ అవసరం.";
-        if (empty($email)) $errors[] = "Email Address is required / ఈమెయిల్ అవసరం.";
+        if (empty($gender)) $errors[] = "Gender is required / లింగం ఎంచుకోవాలి.";
+        if (empty($blood_group)) $errors[] = "Blood Group is required / రక్త వర్గం అవసరం.";
         if (empty($designation)) $errors[] = "Designation is required / ఉద్యోగ హోదా అవసరం.";
-        if (empty($p_house) || empty($p_village) || empty($p_district) || empty($p_pincode)) {
-            $errors[] = "Present address details are required / ప్రస్తుత చిరునామా వివరాలు అవసరం.";
+        if (empty($department_id)) $errors[] = "Department is required / విభాగం అవసరం.";
+        if (empty($joining_date)) $errors[] = "Date of Joining is required / చేరిక తేదీ అవసరం.";
+        if (empty($nationality)) $errors[] = "Nationality is required / జాతీయత తప్పనిసరి.";
+
+        // Aadhaar mandatory
+        if (empty($aadhaar_masked) || strlen($aadhaar_raw) !== 12) {
+            $errors[] = "Valid 12-digit Aadhaar Number is mandatory / 12 అంకెల ఆధార్ సంఖ్య తప్పనిసరి.";
         }
+
+        // Bank details all mandatory
+        if (empty($bank_holder_name)) $errors[] = "Name of Bank Account Holder is mandatory / ఖాతాదారుని పేరు తప్పనిసరి.";
+        if (empty($bank_name)) $errors[] = "Bank Name is mandatory / బ్యాంకు పేరు తప్పనిసరి.";
+        if (empty($bank_branch)) $errors[] = "Bank Branch is mandatory / బ్యాంకు బ్రాంచ్ తప్పనిసరి.";
+        if (empty($bank_account_no)) $errors[] = "Bank Account Number is mandatory / బ్యాంకు ఖాతా సంఖ్య తప్పనిసరి.";
+        if (empty($bank_ifsc)) $errors[] = "Bank IFSC Code is mandatory / బ్యాంకు IFSC కోడ్ తప్పనిసరి.";
+
+        // Contact details all mandatory
+        if (empty($mobile) || strlen(preg_replace('/\D/', '', $mobile)) !== 10) {
+            $errors[] = "Valid 10-digit Mobile Number is required / 10 అంకెల మొబైల్ నంబర్ అవసరం.";
+        }
+        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = "Valid Email Address is required / సరైన ఈమెయిల్ చిరునామా అవసరం.";
+        }
+
+        // Address details all mandatory
+        if (empty($p_house) || empty($p_street) || empty($p_village) || empty($p_mandal) || empty($p_district) || empty($p_state) || empty($p_pincode)) {
+            $errors[] = "Present address details (all fields) are mandatory / ప్రస్తుత చిరునామా వివరాలన్నీ తప్పనిసరి.";
+        }
+        if (!$same_as_present) {
+            if (empty($perm_house) || empty($perm_street) || empty($perm_village) || empty($perm_mandal) || empty($perm_district) || empty($perm_state) || empty($perm_pincode)) {
+                $errors[] = "Permanent address details (all fields) are mandatory / శాశ్వత చిరునామా వివరాలన్నీ తప్పనిసరి.";
+            }
+        }
+
+        // Emergency contact all mandatory
+        if (empty($emg_name) || empty($emg_rel) || empty($emg_mobile) || empty($emg_address)) {
+            $errors[] = "Emergency contact details are mandatory / అత్యవసర సంప్రదింపు వివరాలన్నీ తప్పనిసరి.";
+        }
+
+        // All ticks mandatory
         if (!$terms_ack) {
             $errors[] = "You must acknowledge and accept the Employment Terms & Conditions / ఉపాధి నిబంధనలను అంగీకరించాలి.";
+        }
+        if (!$pickup_policy_ack) {
+            $errors[] = "You must acknowledge receipt of the Associate Leave & Incentive Policy / పికప్ అసోసియేట్ పాలసీని అంగీకరించాలి.";
         }
         if (!$data_consent) {
             $errors[] = "You must complete the Employee Declaration and Data Authorization / ఉద్యోగి డిక్లరేషన్‌ను అంగీకరించాలి.";
         }
-        if ($is_pickup_role && !$pickup_policy_ack) {
-            $errors[] = "Pickup Associates must acknowledge receipt of the Associate Leave & Incentive Policy / పికప్ అసోసియేట్ పాలసీని అంగీకరించాలి.";
-        }
+
         $has_sig_upload = (isset($_FILES['signature_file']) && $_FILES['signature_file']['error'] === UPLOAD_ERR_OK);
         if (empty($signature_data) && empty($signature['signature_image_path']) && !$has_sig_upload) {
             $errors[] = "Employee signature is required / ఉద్యోగి సంతకం తప్పనిసరి.";
@@ -329,9 +376,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
             // 5. Upsert Personal Details
             $stmt = $db->prepare("INSERT INTO employee_personal_details (
                 application_id, employee_id, full_name, father_name, dob, gender, mobile, 
-                alternate_mobile, email, designation, department_id, joining_date, blood_group, 
+                alternate_mobile, email, designation, department_id, joining_date, blood_group, nationality,
                 previous_work_experience, photo_path, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE 
                 employee_id = VALUES(employee_id),
                 full_name = VALUES(full_name),
@@ -345,6 +392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
                 department_id = VALUES(department_id),
                 joining_date = VALUES(joining_date),
                 blood_group = VALUES(blood_group),
+                nationality = VALUES(nationality),
                 previous_work_experience = VALUES(previous_work_experience),
                 photo_path = COALESCE(VALUES(photo_path), photo_path),
                 updated_at = NOW()");
@@ -362,6 +410,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
                 $department_id, 
                 $joining_date_clean, 
                 !empty($blood_group) ? $blood_group : null,
+                !empty($nationality) ? $nationality : 'Indian',
                 !empty($previous_work_experience) ? $previous_work_experience : null, 
                 $photo_path
             ]);
@@ -383,23 +432,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_editable) {
                 $ins->execute([$app_id, $perm_house, $perm_street, $perm_village, $perm_mandal, $perm_district, $perm_state, $perm_pincode, $same_as_present]);
             }
             
-            // 7. Upsert Identity Documents
+            // 7. Upsert Identity Documents & Bank Details
             $stmt = $db->prepare("INSERT INTO employee_identity_documents (
-                application_id, aadhaar_masked, aadhaar_last4, other_id_type, other_id_number, documents_submitted
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                application_id, aadhaar_masked, aadhaar_last4, other_id_type, other_id_number, documents_submitted,
+                bank_holder_name, bank_name, bank_branch, bank_account_no, bank_ifsc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 aadhaar_masked = VALUES(aadhaar_masked),
                 aadhaar_last4 = VALUES(aadhaar_last4),
                 other_id_type = VALUES(other_id_type),
                 other_id_number = VALUES(other_id_number),
-                documents_submitted = VALUES(documents_submitted)");
+                documents_submitted = VALUES(documents_submitted),
+                bank_holder_name = VALUES(bank_holder_name),
+                bank_name = VALUES(bank_name),
+                bank_branch = VALUES(bank_branch),
+                bank_account_no = VALUES(bank_account_no),
+                bank_ifsc = VALUES(bank_ifsc)");
             $stmt->execute([
                 $app_id, 
                 !empty($aadhaar_masked) ? $aadhaar_masked : null, 
                 !empty($aadhaar_last4) ? $aadhaar_last4 : null, 
                 !empty($other_id_type) ? $other_id_type : null, 
                 !empty($other_id_number) ? $other_id_number : null, 
-                !empty($documents_submitted) ? $documents_submitted : null
+                !empty($documents_submitted) ? $documents_submitted : null,
+                !empty($bank_holder_name) ? $bank_holder_name : null,
+                !empty($bank_name) ? $bank_name : null,
+                !empty($bank_branch) ? $bank_branch : null,
+                !empty($bank_account_no) ? $bank_account_no : null,
+                !empty($bank_ifsc) ? $bank_ifsc : null
             ]);
             
             // 8. Upsert Emergency Contact
@@ -781,6 +841,29 @@ function lbl($key, $lang = 'bilingual') {
         .bel-nav-btn:hover {
             background: #ffffff;
             color: var(--bel-purple);
+        }
+
+        .bel-preview-btn {
+            background: #ffffff;
+            color: #1e1145 !important;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .bel-preview-btn:hover {
+            background: #f1f5f9;
+            color: #dc2626 !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         }
 
         .bel-logout-btn {
@@ -1212,9 +1295,39 @@ function lbl($key, $lang = 'bilingual') {
             font-size: 14.5px;
             margin-bottom: 6px;
         }
+
+        @keyframes vkToastSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.96);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        .vk-toast-popup {
+            animation: vkToastSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
     </style>
 </head>
 <body>
+
+<!-- Floating Notification Popup (Visible Without Scroll) -->
+<div id="vkValidationToast" class="vk-toast-popup" style="display: none; position: fixed; top: 22px; right: 24px; z-index: 9999999; max-width: 440px; width: calc(100vw - 48px); background: #ffffff; color: #1e293b; border-radius: 12px; box-shadow: 0 14px 35px rgba(0,0,0,0.22), 0 3px 10px rgba(0,0,0,0.06); border-left: 5px solid #ef4444; padding: 14px 18px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="background: #fee2e2; color: #dc2626; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; margin-top: 1px;">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+            <div>
+                <div style="font-weight: 700; font-size: 13.5px; color: #0f172a;">Required Field / తప్పనిసరి వివరాలు</div>
+                <div id="vkValidationToastMsg" style="font-size: 13px; color: #475569; margin-top: 3px; line-height: 1.45;"></div>
+            </div>
+        </div>
+        <button type="button" onclick="hideValidationToast()" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; border-radius: 4px;" title="Close">&times;</button>
+    </div>
+</div>
 
 <!-- TOP CORPORATE BRANDING BANNER -->
 <header>
@@ -1241,9 +1354,9 @@ function lbl($key, $lang = 'bilingual') {
                     <i class="fas fa-eye me-1"></i> View Scan
                 </button>
 
-                <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="bel-nav-btn" title="Download Form PDF">
-                    <i class="fas fa-file-pdf text-danger me-1"></i> PDF
-                </a>
+                <button type="button" class="bel-preview-btn" onclick="openPdfPreviewModal()" title="PDF Preview & Download">
+                    <i class="fas fa-file-pdf text-danger me-1"></i> PDF Preview &amp; Download
+                </button>
 
                 <?php if ($is_embedded): ?>
                     <button type="button" class="bel-logout-btn" onclick="if(window.parent && window.parent.switchView) window.parent.switchView('list');">
@@ -1402,13 +1515,8 @@ function lbl($key, $lang = 'bilingual') {
                         </div>
 
                         <div class="col-md-4">
-                            <label class="form-label">Nationality: <span class="text-danger">*</span></label>
-                            <div class="pt-1">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" checked disabled>
-                                    <label class="form-check-label">A citizen of India (భారతీయ పౌరుడు)</label>
-                                </div>
-                            </div>
+                            <label class="form-label"><?php echo lbl('nationality', $lang) ?: 'Nationality'; ?>: <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="nationality" id="nationalityInput" required value="<?php echo htmlspecialchars($personal['nationality'] ?? 'Indian'); ?>" placeholder="e.g. Indian (భారతీయుడు)" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                         </div>
 
                         <div class="col-md-4" id="empIdContainer" style="<?php echo ($application['employee_type'] ?? 'new_joiner') === 'new_joiner' ? 'display:none;' : ''; ?>">
@@ -1479,8 +1587,8 @@ function lbl($key, $lang = 'bilingual') {
                                 </div>
 
                                 <div class="col-md-4">
-                                    <label class="form-label"><?php echo lbl('blood_group', $lang); ?>:</label>
-                                    <select class="form-select" name="blood_group" <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                    <label class="form-label"><?php echo lbl('blood_group', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <select class="form-select" name="blood_group" required <?php echo !$is_editable ? 'disabled' : ''; ?>>
                                         <option value="">-- Select Blood Group --</option>
                                         <?php foreach (['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'] as $bg): ?>
                                             <option value="<?php echo $bg; ?>" <?php echo ($personal['blood_group'] ?? '') === $bg ? 'selected' : ''; ?>><?php echo $bg; ?></option>
@@ -1571,23 +1679,23 @@ function lbl($key, $lang = 'bilingual') {
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label">Name of Account Holder: <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" name="bank_holder_name" value="<?php echo htmlspecialchars($personal['full_name'] ?? ''); ?>" placeholder="Name as in Bank Passbook" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                <input type="text" class="form-control" name="bank_holder_name" value="<?php echo htmlspecialchars($identity['bank_holder_name'] ?? $personal['full_name'] ?? ''); ?>" placeholder="Name as in Bank Passbook" <?php echo !$is_editable ? 'readonly' : ''; ?> required>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Bank Name: <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" name="bank_name" placeholder="e.g. State Bank of India, HDFC" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                <input type="text" class="form-control" name="bank_name" value="<?php echo htmlspecialchars($identity['bank_name'] ?? ''); ?>" placeholder="e.g. State Bank of India, HDFC" <?php echo !$is_editable ? 'readonly' : ''; ?> required>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Bank Branch: <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" name="bank_branch" placeholder="Branch Name" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                <input type="text" class="form-control" name="bank_branch" value="<?php echo htmlspecialchars($identity['bank_branch'] ?? ''); ?>" placeholder="Branch Name" <?php echo !$is_editable ? 'readonly' : ''; ?> required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Bank Account Number: <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control font-monospace" name="bank_account_no" placeholder="Bank Account Number" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                <input type="text" class="form-control font-monospace" name="bank_account_no" value="<?php echo htmlspecialchars($identity['bank_account_no'] ?? ''); ?>" placeholder="Bank Account Number" <?php echo !$is_editable ? 'readonly' : ''; ?> required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Bank IFSC Code: <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control font-monospace text-uppercase" name="bank_ifsc" placeholder="e.g. SBIN0012345" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                <input type="text" class="form-control font-monospace text-uppercase" name="bank_ifsc" value="<?php echo htmlspecialchars($identity['bank_ifsc'] ?? ''); ?>" placeholder="e.g. SBIN0012345" <?php echo !$is_editable ? 'readonly' : ''; ?> required>
                             </div>
                         </div>
                     </div>
@@ -1596,9 +1704,14 @@ function lbl($key, $lang = 'bilingual') {
 
             <!-- Tab 1 Bottom Action Bar -->
             <div class="bel-bottom-bar">
-                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
-                    <i class="fas fa-save me-1"></i> SAVE DRAFT
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i> SAVE DRAFT
+                    </button>
+                    <button type="button" class="bel-btn-outline" onclick="openPdfPreviewModal()" title="Live Form PDF Preview">
+                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF PREVIEW
+                    </button>
+                </div>
                 <button type="button" class="bel-btn-save-next" onclick="goToTab(2)">
                     SAVE & NEXT <i class="fas fa-chevron-right ms-1"></i>
                 </button>
@@ -1667,7 +1780,7 @@ function lbl($key, $lang = 'bilingual') {
                         </div>
                         <div class="col-md-3">
                             <label class="form-label"><?php echo lbl('state', $lang); ?>: <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="p_state" name="present_state" required value="<?php echo htmlspecialchars($present_address['state'] ?? 'Telangana'); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            <input type="text" class="form-control" id="p_state" name="present_state" required value="<?php echo htmlspecialchars($present_address['state'] ?? ''); ?>" placeholder="State (రాష్ట్రం)" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label"><?php echo lbl('pincode', $lang); ?>: <span class="text-danger">*</span></label>
@@ -1716,7 +1829,7 @@ function lbl($key, $lang = 'bilingual') {
                         </div>
                         <div class="col-md-3">
                             <label class="form-label"><?php echo lbl('state', $lang); ?>:</label>
-                            <input type="text" class="form-control" id="perm_state" name="perm_state" value="<?php echo htmlspecialchars($permanent_address['state'] ?? 'Telangana'); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                            <input type="text" class="form-control" id="perm_state" name="perm_state" value="<?php echo htmlspecialchars($permanent_address['state'] ?? ''); ?>" placeholder="State (రాష్ట్రం)" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label"><?php echo lbl('pincode', $lang); ?>:</label>
@@ -1766,9 +1879,14 @@ function lbl($key, $lang = 'bilingual') {
 
             <!-- Tab 2 Bottom Action Bar -->
             <div class="bel-bottom-bar">
-                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
-                    <i class="fas fa-save me-1"></i> SAVE DRAFT
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i> SAVE DRAFT
+                    </button>
+                    <button type="button" class="bel-btn-outline" onclick="openPdfPreviewModal()" title="Live Form PDF Preview">
+                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF PREVIEW
+                    </button>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="bel-btn-outline" onclick="goToTab(1)">
                         <i class="fas fa-chevron-left me-1"></i> PREVIOUS
@@ -1829,52 +1947,52 @@ function lbl($key, $lang = 'bilingual') {
                     <div class="row g-4">
                         <!-- Ref 1 -->
                         <div class="col-md-6 border-end-md">
-                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_1', $lang); ?></h6>
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_1', $lang); ?> <span class="badge bg-secondary fw-normal">Optional / ఐచ్ఛికం</span></h6>
                             <div class="row g-3">
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" name="ref1_name" required value="<?php echo htmlspecialchars($ref1['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>:</label>
+                                    <input type="text" class="form-control" name="ref1_name" value="<?php echo htmlspecialchars($ref1['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" name="ref1_rel" required value="<?php echo htmlspecialchars($ref1['relationship_how_known'] ?? ''); ?>" placeholder="e.g. Neighbor, Colleague, Village elder" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>:</label>
+                                    <input type="text" class="form-control" name="ref1_rel" value="<?php echo htmlspecialchars($ref1['relationship_how_known'] ?? ''); ?>" placeholder="e.g. Neighbor, Colleague, Village elder" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>:</label>
                                     <div class="input-group">
                                         <span class="input-group-text">91</span>
-                                        <input type="tel" class="form-control" name="ref1_mobile" required maxlength="10" value="<?php echo htmlspecialchars($ref1['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                        <input type="tel" class="form-control" name="ref1_mobile" maxlength="10" value="<?php echo htmlspecialchars($ref1['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                     </div>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('address', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <textarea class="form-control" rows="2" name="ref1_address" required <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref1['address'] ?? ''); ?></textarea>
+                                    <label class="form-label"><?php echo lbl('address', $lang); ?>:</label>
+                                    <textarea class="form-control" rows="2" name="ref1_address" <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref1['address'] ?? ''); ?></textarea>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Ref 2 -->
                         <div class="col-md-6">
-                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_2', $lang); ?></h6>
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><?php echo lbl('reference_2', $lang); ?> <span class="badge bg-secondary fw-normal">Optional / ఐచ్ఛికం</span></h6>
                             <div class="row g-3">
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" name="ref2_name" required value="<?php echo htmlspecialchars($ref2['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    <label class="form-label"><?php echo lbl('full_name', $lang); ?>:</label>
+                                    <input type="text" class="form-control" name="ref2_name" value="<?php echo htmlspecialchars($ref2['full_name'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" name="ref2_rel" required value="<?php echo htmlspecialchars($ref2['relationship_how_known'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                    <label class="form-label"><?php echo lbl('relationship_how_known', $lang); ?>:</label>
+                                    <input type="text" class="form-control" name="ref2_rel" value="<?php echo htmlspecialchars($ref2['relationship_how_known'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>: <span class="text-danger">*</span></label>
+                                    <label class="form-label"><?php echo lbl('mobile_number', $lang); ?>:</label>
                                     <div class="input-group">
                                         <span class="input-group-text">91</span>
-                                        <input type="tel" class="form-control" name="ref2_mobile" required maxlength="10" value="<?php echo htmlspecialchars($ref2['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
+                                        <input type="tel" class="form-control" name="ref2_mobile" maxlength="10" value="<?php echo htmlspecialchars($ref2['mobile'] ?? ''); ?>" <?php echo !$is_editable ? 'readonly' : ''; ?>>
                                     </div>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label"><?php echo lbl('address', $lang); ?>: <span class="text-danger">*</span></label>
-                                    <textarea class="form-control" rows="2" name="ref2_address" required <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref2['address'] ?? ''); ?></textarea>
+                                    <label class="form-label"><?php echo lbl('address', $lang); ?>:</label>
+                                    <textarea class="form-control" rows="2" name="ref2_address" <?php echo !$is_editable ? 'readonly' : ''; ?>><?php echo htmlspecialchars($ref2['address'] ?? ''); ?></textarea>
                                 </div>
                             </div>
                         </div>
@@ -1884,9 +2002,14 @@ function lbl($key, $lang = 'bilingual') {
 
             <!-- Tab 3 Bottom Action Bar -->
             <div class="bel-bottom-bar">
-                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
-                    <i class="fas fa-save me-1"></i> SAVE DRAFT
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i> SAVE DRAFT
+                    </button>
+                    <button type="button" class="bel-btn-outline" onclick="openPdfPreviewModal()" title="Live Form PDF Preview">
+                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF PREVIEW
+                    </button>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="bel-btn-outline" onclick="goToTab(2)">
                         <i class="fas fa-chevron-left me-1"></i> PREVIOUS
@@ -2015,9 +2138,9 @@ function lbl($key, $lang = 'bilingual') {
                     <div class="p-3 bg-light rounded border">
                         <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" name="pickup_policy_acknowledged" id="pickupPolicyAck" value="1" 
-                                <?php echo (!empty($declaration['pickup_policy_acknowledged']) || !empty($_POST['pickup_policy_acknowledged'])) ? 'checked' : ''; ?> <?php echo !$is_editable ? 'disabled' : ''; ?>>
+                                <?php echo (!empty($declaration['pickup_policy_acknowledged']) || !empty($_POST['pickup_policy_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
                             <label class="form-check-label fw-bold text-dark" for="pickupPolicyAck">
-                                I acknowledge receipt of the Associate Leave & Pickup Incentive Policy and agree to abide by all its provisions.<br>
+                                I acknowledge receipt of the Associate Leave & Pickup Incentive Policy and agree to abide by all its provisions. <span class="text-danger">*</span><br>
                                 <span class="text-muted fw-normal te-text">నేను అసోసియేట్ సెలవు మరియు పికప్ ప్రోత్సాహక విధానాన్ని అందుకున్నానని మరియు దాని నిబంధనలన్నింటికీ కట్టుబడి ఉంటానని ధృవీకరిస్తున్నాను.</span>
                             </label>
                         </div>
@@ -2027,9 +2150,14 @@ function lbl($key, $lang = 'bilingual') {
 
             <!-- Tab 4 Bottom Action Bar -->
             <div class="bel-bottom-bar">
-                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
-                    <i class="fas fa-save me-1"></i> SAVE DRAFT
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i> SAVE DRAFT
+                    </button>
+                    <button type="button" class="bel-btn-outline" onclick="openPdfPreviewModal()" title="Live Form PDF Preview">
+                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF PREVIEW
+                    </button>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="bel-btn-outline" onclick="goToTab(3)">
                         <i class="fas fa-chevron-left me-1"></i> PREVIOUS
@@ -2052,7 +2180,7 @@ function lbl($key, $lang = 'bilingual') {
                 <div id="secUploadDocs" class="bel-section-body">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label">1. Aadhaar Card (Front & Back / PDF): <span class="text-danger">*</span></label>
+                            <label class="form-label">1. Aadhaar Card (Front & Back / PDF): <span class="badge bg-secondary fw-normal">Optional</span></label>
                             <input type="file" class="form-control" name="aadhaar_doc" accept=".pdf,.jpg,.jpeg,.png" <?php echo !$is_editable ? 'disabled' : ''; ?>>
                         </div>
                         <div class="col-md-6">
@@ -2120,7 +2248,7 @@ function lbl($key, $lang = 'bilingual') {
                             <input class="form-check-input" type="checkbox" name="data_consent_acknowledged" id="dataConsentAck" value="1" 
                                 <?php echo (!empty($declaration['data_consent_acknowledged']) || !empty($_POST['data_consent_acknowledged'])) ? 'checked' : ''; ?> required <?php echo !$is_editable ? 'disabled' : ''; ?>>
                             <label class="form-check-label fw-bold text-dark" for="dataConsentAck">
-                                I confirm that all information provided above is true and accurate. I have read, understood, and accept all the terms, policies and declarations.<br>
+                                I confirm that all information provided above is true and accurate. I have read, understood, and accept all the terms, policies and declarations. <span class="text-danger">*</span><br>
                                 <span class="text-muted fw-normal te-text">పైన అందించిన సమాచారమంతా సత్యమైనదని మరియు ఖచ్చితమైనదని ధృవీకరిస్తున్నాను. నిబంధనలు మరియు పాలసీలను అంగీకరిస్తున్నాను.</span>
                             </label>
                         </div>
@@ -2201,9 +2329,14 @@ function lbl($key, $lang = 'bilingual') {
 
             <!-- Tab 5 Bottom Action Bar -->
             <div class="bel-bottom-bar">
-                <button type="button" class="bel-btn-outline" onclick="saveDraft()">
-                    <i class="fas fa-save me-1"></i> SAVE DRAFT
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="bel-btn-outline" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i> SAVE DRAFT
+                    </button>
+                    <button type="button" class="bel-btn-outline" onclick="openPdfPreviewModal()" title="Live Form PDF Preview">
+                        <i class="fas fa-file-pdf text-danger me-1"></i> PDF PREVIEW
+                    </button>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="bel-btn-outline" onclick="goToTab(4)">
                         <i class="fas fa-chevron-left me-1"></i> PREVIOUS
@@ -2213,7 +2346,7 @@ function lbl($key, $lang = 'bilingual') {
                             <i class="fas fa-check-circle me-1"></i> SUBMIT APPLICATION
                         </button>
                     <?php else: ?>
-                        <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>" target="_blank" class="bel-btn-submit text-decoration-none">
+                        <a href="dashboard/management/joining_pdf.php?id=<?php echo $app_id; ?>&token=<?php echo urlencode($application['token']); ?>&auto_print=1" target="_blank" class="bel-btn-submit text-decoration-none">
                             <i class="fas fa-download me-1"></i> DOWNLOAD PDF
                         </a>
                     <?php endif; ?>
@@ -2249,7 +2382,293 @@ function lbl($key, $lang = 'bilingual') {
         }
     }
 
-    function goToTab(tabNum) {
+    function clearValidationErrors() {
+        document.querySelectorAll('.bel-invalid-field, .is-invalid').forEach(el => {
+            el.classList.remove('is-invalid', 'bel-invalid-field');
+            el.style.removeProperty('border-color');
+            el.style.removeProperty('background-color');
+            el.style.removeProperty('box-shadow');
+        });
+    }
+
+    let toastTimeout = null;
+
+    function hideValidationToast() {
+        const toast = document.getElementById('vkValidationToast');
+        if (toast) {
+            toast.style.display = 'none';
+        }
+        if (toastTimeout) {
+            clearTimeout(toastTimeout);
+            toastTimeout = null;
+        }
+    }
+
+    function clearValidationBanner() {
+        hideValidationToast();
+    }
+
+    function showValidationBanner(msg, el) {
+        // Broadcast to parent dashboard if embedded in iframe so it is visible in the top viewport without scrolling
+        if (window.parent && window.parent !== window) {
+            try {
+                window.parent.postMessage({
+                    type: 'vk_show_toast',
+                    message: msg
+                }, '*');
+            } catch(e) {}
+        }
+
+        const toast = document.getElementById('vkValidationToast');
+        const msgEl = document.getElementById('vkValidationToastMsg');
+        if (toast && msgEl) {
+            msgEl.innerHTML = msg;
+            toast.style.display = 'block';
+
+            if (toastTimeout) clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                hideValidationToast();
+            }, 4500);
+        }
+
+        // Focus field without forcing page to scroll
+        if (el && typeof el.focus === 'function') {
+            try {
+                el.focus({ preventScroll: true });
+            } catch(e) {}
+        }
+    }
+
+    function markFieldInvalid(el, message, errorsList, state) {
+        if (!el) return;
+        el.classList.add('is-invalid', 'bel-invalid-field');
+        el.style.borderColor = '#dc2626';
+        el.style.backgroundColor = '#fef2f2';
+        el.style.boxShadow = '0 0 0 3px rgba(220, 38, 38, 0.2)';
+
+        // Auto-remove red highlight on input / change
+        const clearHandler = function() {
+            el.classList.remove('is-invalid', 'bel-invalid-field');
+            el.style.removeProperty('border-color');
+            el.style.removeProperty('background-color');
+            el.style.removeProperty('box-shadow');
+            el.removeEventListener('input', clearHandler);
+            el.removeEventListener('change', clearHandler);
+        };
+        el.addEventListener('input', clearHandler);
+        el.addEventListener('change', clearHandler);
+
+        // Auto expand collapsed section if inside one
+        let cardBody = el.closest('.bel-section-body');
+        if (cardBody && cardBody.style.display === 'none') {
+            cardBody.style.display = 'block';
+            let toggleBtn = cardBody.parentElement.querySelector('.bel-toggle-btn');
+            if (toggleBtn) toggleBtn.innerText = '[-]';
+        }
+
+        if (!state.firstInvalidEl) {
+            state.firstInvalidEl = el;
+        }
+        errorsList.push(message);
+    }
+
+    function validateTab(tabIndex) {
+        clearValidationErrors();
+        let errors = [];
+        let state = { firstInvalidEl: null };
+
+        if (tabIndex === 1) {
+            // Personal Details (Mandatory)
+            const desig = document.querySelector('[name="designation"]');
+            if (!desig || !desig.value.trim()) markFieldInvalid(desig, '<strong>Designation / Job Role</strong> is mandatory (ఉద్యోగ హోదా తప్పనిసరి).', errors, state);
+
+            const dept = document.querySelector('[name="department_id"]');
+            if (!dept || !dept.value.trim()) markFieldInvalid(dept, '<strong>Department</strong> is mandatory (విభాగం ఎంచుకోవాలి).', errors, state);
+
+            const joiningDate = document.querySelector('[name="joining_date"]');
+            if (!joiningDate || !joiningDate.value.trim()) markFieldInvalid(joiningDate, '<strong>Date of Joining</strong> is mandatory (చేరిక తేదీ తప్పనిసరి).', errors, state);
+
+            const fullName = document.querySelector('[name="full_name"]');
+            if (!fullName || !fullName.value.trim()) markFieldInvalid(fullName, '<strong>Full Name</strong> is mandatory (పూర్తి పేరు తప్పనిసరి).', errors, state);
+
+            const fatherName = document.querySelector('[name="father_name"]');
+            if (!fatherName || !fatherName.value.trim()) markFieldInvalid(fatherName, "<strong>Father's Name</strong> is mandatory (తండ్రి పేరు తప్పనిసరి).", errors, state);
+
+            const dob = document.querySelector('[name="dob"]');
+            if (!dob || !dob.value.trim()) markFieldInvalid(dob, '<strong>Date of Birth</strong> is mandatory (పుట్టిన తేదీ తప్పనిసరి).', errors, state);
+
+            const gender = document.querySelector('[name="gender"]');
+            if (!gender || !gender.value.trim()) markFieldInvalid(gender, '<strong>Gender</strong> is mandatory (లింగం ఎంచుకోవాలి).', errors, state);
+
+            const bloodGroup = document.querySelector('[name="blood_group"]');
+            if (!bloodGroup || !bloodGroup.value.trim()) markFieldInvalid(bloodGroup, '<strong>Blood Group</strong> is mandatory (రక్త వర్గం తప్పనిసరి).', errors, state);
+
+            const nationality = document.querySelector('[name="nationality"]');
+            if (!nationality || !nationality.value.trim()) markFieldInvalid(nationality, '<strong>Nationality</strong> is mandatory (జాతీయత తప్పనిసరి).', errors, state);
+
+            // Passport photo
+            const photoPreview = document.getElementById('photo_preview');
+            const photoFile = document.getElementById('passport_photo');
+            const hasExistingPhoto = photoPreview && photoPreview.style.display !== 'none' && photoPreview.src && !photoPreview.src.includes('avatar-placeholder');
+            const hasUploadedPhoto = photoFile && photoFile.files && photoFile.files.length > 0;
+            if (!hasExistingPhoto && !hasUploadedPhoto) {
+                const photoBox = document.querySelector('.bel-photo-box');
+                markFieldInvalid(photoBox, '<strong>Candidate Passport Photo</strong> is mandatory (పాస్‌పోర్ట్ సైజు ఫోటో అప్‌లోడ్ చేయండి).', errors, state);
+            }
+
+            // Aadhaar is mandatory
+            const aadhaar = document.querySelector('[name="aadhaar_number"]');
+            const aVal = aadhaar ? aadhaar.value.replace(/\D/g, '') : '';
+            if (!aadhaar || aVal.length !== 12) {
+                markFieldInvalid(aadhaar, '<strong>Aadhaar Number</strong> is mandatory and must be exactly 12 digits (12 అంకెల ఆధార్ సంఖ్య తప్పనిసరి).', errors, state);
+            }
+
+            // Bank Details are all mandatory
+            const bankHolder = document.querySelector('[name="bank_holder_name"]');
+            if (!bankHolder || !bankHolder.value.trim()) markFieldInvalid(bankHolder, '<strong>Account Holder Name</strong> is mandatory (ఖాతాదారుని పేరు తప్పనిసరి).', errors, state);
+
+            const bankName = document.querySelector('[name="bank_name"]');
+            if (!bankName || !bankName.value.trim()) markFieldInvalid(bankName, '<strong>Bank Name</strong> is mandatory (బ్యాంకు పేరు తప్పనిసరి).', errors, state);
+
+            const bankBranch = document.querySelector('[name="bank_branch"]');
+            if (!bankBranch || !bankBranch.value.trim()) markFieldInvalid(bankBranch, '<strong>Bank Branch</strong> is mandatory (బ్యాంకు బ్రాంచ్ తప్పనిసరి).', errors, state);
+
+            const bankAcc = document.querySelector('[name="bank_account_no"]');
+            if (!bankAcc || bankAcc.value.trim().length < 8) markFieldInvalid(bankAcc, 'Valid <strong>Bank Account Number</strong> is mandatory (బ్యాంక్ ఖాతా సంఖ్య తప్పనిసరి).', errors, state);
+
+            const bankIfsc = document.querySelector('[name="bank_ifsc"]');
+            if (!bankIfsc || bankIfsc.value.trim().length < 8) markFieldInvalid(bankIfsc, 'Valid <strong>Bank IFSC Code</strong> is mandatory (బ్యాంక్ IFSC కోడ్ తప్పనిసరి).', errors, state);
+        }
+
+        if (tabIndex === 2) {
+            // Contact Details (Mandatory)
+            const mobile = document.querySelector('[name="mobile"]');
+            const mVal = mobile ? mobile.value.replace(/\D/g, '') : '';
+            if (!mobile || mVal.length !== 10) markFieldInvalid(mobile, 'Valid 10-digit <strong>Mobile Number</strong> is mandatory (10 అంకెల మొబైల్ నంబర్ తప్పనిసరి).', errors, state);
+
+            const email = document.querySelector('[name="email"]');
+            if (!email || !email.value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
+                markFieldInvalid(email, 'Valid <strong>Email Address</strong> is mandatory (సరైన ఈమెయిల్ తప్పనిసరి).', errors, state);
+            }
+
+            // Present Address (All Mandatory)
+            const pHouse = document.querySelector('[name="present_house_flat_no"]');
+            if (!pHouse || !pHouse.value.trim()) markFieldInvalid(pHouse, 'Present <strong>House / Flat No</strong> is mandatory (ఇంటి నంబరు తప్పనిసరి).', errors, state);
+
+            const pStreet = document.querySelector('[name="present_street_area"]');
+            if (!pStreet || !pStreet.value.trim()) markFieldInvalid(pStreet, 'Present <strong>Street / Area</strong> is mandatory (వీధి / ఏరియా తప్పనిసరి).', errors, state);
+
+            const pVillage = document.querySelector('[name="present_village_town"]');
+            if (!pVillage || !pVillage.value.trim()) markFieldInvalid(pVillage, 'Present <strong>Village / Town</strong> is mandatory (గ్రామం / పట్టణం తప్పనిసరి).', errors, state);
+
+            const pMandal = document.querySelector('[name="present_mandal"]');
+            if (!pMandal || !pMandal.value.trim()) markFieldInvalid(pMandal, 'Present <strong>Mandal</strong> is mandatory (మండలం తప్పనిసరి).', errors, state);
+
+            const pDistrict = document.querySelector('[name="present_district"]');
+            if (!pDistrict || !pDistrict.value.trim()) markFieldInvalid(pDistrict, 'Present <strong>District</strong> is mandatory (జిల్లా తప్పనిసరి).', errors, state);
+
+            const pState = document.querySelector('[name="present_state"]');
+            if (!pState || !pState.value.trim()) markFieldInvalid(pState, 'Present <strong>State</strong> is mandatory (రాష్ట్రం తప్పనిసరి).', errors, state);
+
+            const pPincode = document.querySelector('[name="present_pincode"]');
+            const pinVal = pPincode ? pPincode.value.replace(/\D/g, '') : '';
+            if (!pPincode || pinVal.length !== 6) markFieldInvalid(pPincode, 'Valid 6-digit Present <strong>PIN Code</strong> is mandatory (6 అంకెల పిన్‌కోడ్ తప్పనిసరి).', errors, state);
+
+            // Permanent Address (if not same as present)
+            const sameAsPres = document.getElementById('sameAsPresentToggle');
+            if (sameAsPres && !sameAsPres.checked) {
+                const permHouse = document.querySelector('[name="perm_house_flat_no"]');
+                if (!permHouse || !permHouse.value.trim()) markFieldInvalid(permHouse, 'Permanent <strong>House No</strong> is mandatory (శాశ్వత ఇంటి నంబరు తప్పనిసరి).', errors, state);
+
+                const permStreet = document.querySelector('[name="perm_street_area"]');
+                if (!permStreet || !permStreet.value.trim()) markFieldInvalid(permStreet, 'Permanent <strong>Street</strong> is mandatory (శాశ్వత వీధి తప్పనిసరి).', errors, state);
+
+                const permVillage = document.querySelector('[name="perm_village_town"]');
+                if (!permVillage || !permVillage.value.trim()) markFieldInvalid(permVillage, 'Permanent <strong>Village / Town</strong> is mandatory (శాశ్వత గ్రామం/పట్టణం తప్పనిసరి).', errors, state);
+
+                const permMandal = document.querySelector('[name="perm_mandal"]');
+                if (!permMandal || !permMandal.value.trim()) markFieldInvalid(permMandal, 'Permanent <strong>Mandal</strong> is mandatory (శాశ్వత మండలం తప్పనిసరి).', errors, state);
+
+                const permDistrict = document.querySelector('[name="perm_district"]');
+                if (!permDistrict || !permDistrict.value.trim()) markFieldInvalid(permDistrict, 'Permanent <strong>District</strong> is mandatory (శాశ్వత జిల్లా తప్పనిసరి).', errors, state);
+
+                const permState = document.querySelector('[name="perm_state"]');
+                if (!permState || !permState.value.trim()) markFieldInvalid(permState, 'Permanent <strong>State</strong> is mandatory (శాశ్వత రాష్ట్రం తప్పనిసరి).', errors, state);
+
+                const permPincode = document.querySelector('[name="perm_pincode"]');
+                const permPinVal = permPincode ? permPincode.value.replace(/\D/g, '') : '';
+                if (!permPincode || permPinVal.length !== 6) markFieldInvalid(permPincode, 'Valid 6-digit Permanent <strong>PIN Code</strong> is mandatory (శాశ్వత పిన్‌కోడ్ తప్పనిసరి).', errors, state);
+            }
+
+            // Emergency Contact (All Mandatory)
+            const emgName = document.querySelector('[name="emergency_name"]');
+            if (!emgName || !emgName.value.trim()) markFieldInvalid(emgName, '<strong>Emergency Contact Person Name</strong> is mandatory (అత్యవసర సంప్రదింపు వ్యక్తి పేరు తప్పనిసరి).', errors, state);
+
+            const emgRel = document.querySelector('[name="emergency_rel"]');
+            if (!emgRel || !emgRel.value.trim()) markFieldInvalid(emgRel, '<strong>Emergency Relationship</strong> is mandatory (సంబంధం తప్పనిసరి).', errors, state);
+
+            const emgMobile = document.querySelector('[name="emergency_mobile"]');
+            const emgMVal = emgMobile ? emgMobile.value.replace(/\D/g, '') : '';
+            if (!emgMobile || emgMVal.length !== 10) markFieldInvalid(emgMobile, 'Valid 10-digit <strong>Emergency Mobile</strong> is mandatory (అత్యవసర మొబైల్ నంబర్ తప్పనిసరి).', errors, state);
+
+            const emgAddr = document.querySelector('[name="emergency_address"]');
+            if (!emgAddr || !emgAddr.value.trim()) markFieldInvalid(emgAddr, '<strong>Emergency Address</strong> is mandatory (అత్యవసర చిరునామా తప్పనిసరి).', errors, state);
+        }
+
+        if (tabIndex === 3) {
+            // Tab 3: Previous Employment & References can be skipped as requested
+        }
+
+        if (tabIndex === 4) {
+            // All Ticks Mandatory
+            const termsAck = document.getElementById('termsAck');
+            if (termsAck && !termsAck.checked) {
+                markFieldInvalid(termsAck, 'Please tick and accept the <strong>Employment Terms & Conditions</strong> (ఉపాధి నిబంధనలను అంగీకరించాలి).', errors, state);
+            }
+
+            const pickupPolicyAck = document.getElementById('pickupPolicyAck');
+            if (pickupPolicyAck && !pickupPolicyAck.checked) {
+                markFieldInvalid(pickupPolicyAck, 'Please tick and acknowledge the <strong>Associate Leave & Pickup Incentive Policy</strong> (పాలసీని అంగీకరించాలి).', errors, state);
+            }
+        }
+
+        if (tabIndex === 5) {
+            // Tab 5 All Ticks & Signature Mandatory
+            const dataConsent = document.getElementById('dataConsentAck');
+            if (dataConsent && !dataConsent.checked) {
+                markFieldInvalid(dataConsent, 'Please tick the <strong>Employee Declaration & Data Authorization</strong> confirmation (డిక్లరేషన్‌ను ధృవీకరించాలి).', errors, state);
+            }
+
+            const sigFileInput = document.getElementById('signatureFileInput');
+            const hasSigFile = sigFileInput && sigFileInput.files && sigFileInput.files.length > 0;
+            const hasExistingSig = document.getElementById('existingSignatureImg') !== null;
+            const hasCanvasSig = (hasSignature && document.getElementById('signatureData').value !== '');
+            if (!hasSigFile && !hasExistingSig && !hasCanvasSig) {
+                const sigTarget = document.querySelector('#canvasDrawContainer') || sigFileInput;
+                markFieldInvalid(sigTarget, '<strong>Employee Signature</strong> is mandatory (ఉద్యోగి సంతకం తప్పనిసరి). Upload photo or draw signature.', errors, state);
+            }
+        }
+
+        if (errors.length > 0) {
+            showValidationBanner(errors[0], state.firstInvalidEl);
+            return false;
+        }
+
+        clearValidationBanner();
+        return true;
+    }
+
+    function goToTab(tabNum, force = false) {
+        if (!force && tabNum > currentTab) {
+            for (let t = currentTab; t < tabNum; t++) {
+                if (!validateTab(t)) {
+                    return false;
+                }
+            }
+        }
+
+        clearValidationBanner();
+
         for (let i = 1; i <= totalTabs; i++) {
             const pane = document.getElementById('tabContent-' + i);
             const nav = document.getElementById('tabNav-' + i);
@@ -2277,6 +2696,7 @@ function lbl($key, $lang = 'bilingual') {
         if (tabNum === 5) {
             setTimeout(initCanvasIfNeeded, 100);
         }
+        return true;
     }
 
     function toggleCollapse(bodyId, btnId) {
@@ -2507,33 +2927,16 @@ function lbl($key, $lang = 'bilingual') {
         if (canvas && hasSignature) {
             document.getElementById('signatureData').value = canvas.toDataURL('image/png');
         }
-        
-        const termsAck = document.getElementById('termsAck');
-        const dataConsent = document.getElementById('dataConsentAck');
-        
-        if (termsAck && !termsAck.checked) {
-            alert('Please acknowledge and accept the Employment Terms & Conditions in Tab 4.');
-            goToTab(4);
-            return;
-        }
-        
-        if (dataConsent && !dataConsent.checked) {
-            alert('Please check the Employee Declaration confirmation in Tab 5.');
-            goToTab(5);
-            return;
+
+        // Validate all mandatory tabs before submission
+        for (let t of [1, 2, 4, 5]) {
+            if (!validateTab(t)) {
+                goToTab(t, true);
+                validateTab(t);
+                return;
+            }
         }
 
-        const sigFileInput = document.getElementById('signatureFileInput');
-        const hasSigFile = sigFileInput && sigFileInput.files && sigFileInput.files.length > 0;
-        const hasExistingSig = document.getElementById('existingSignatureImg') !== null;
-        const hasCanvasSig = (hasSignature && document.getElementById('signatureData').value !== '');
-
-        if (!hasSigFile && !hasExistingSig && !hasCanvasSig) {
-            alert('Please upload or draw your Employee Signature in Tab 5 / దయచేసి ఉద్యోగి సంతకాన్ని అప్‌లోడ్ చేయండి.');
-            goToTab(5);
-            return;
-        }
-        
         if (confirm('Are you sure you want to submit your Joining Application to HR? You will not be able to edit once submitted.')) {
             document.getElementById('formAction').value = 'submit_form';
             document.getElementById('joiningForm').submit();
@@ -2637,6 +3040,299 @@ function lbl($key, $lang = 'bilingual') {
         </div>
     </div>
 </div>
+
+<!-- Floating Live PDF Preview Button -->
+<div id="stickyPdfPreviewFab" style="position: fixed; bottom: 25px; right: 25px; z-index: 1040;">
+    <button type="button" class="btn btn-danger shadow-lg rounded-pill px-4 py-2 fw-bold d-inline-flex align-items-center gap-2" onclick="openPdfPreviewModal()" style="border: 2px solid #ffffff; box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4) !important;">
+        <i class="fas fa-file-pdf fs-5"></i> <span>PDF Preview</span>
+    </button>
+</div>
+
+<!-- Real-Time PDF Preview Modal -->
+<div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-labelledby="pdfPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen-lg-down modal-xl modal-dialog-centered" style="max-width: 95vw; height: 92vh;">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style="height: 100%; display: flex; flex-direction: column;">
+            <div class="modal-header bg-dark text-white border-0 py-2 px-4 d-flex align-items-center justify-content-between flex-shrink-0">
+                <div class="d-flex align-items-center">
+                    <div class="rounded-circle bg-danger bg-opacity-25 p-2 me-2 text-danger">
+                        <i class="fas fa-file-pdf fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold mb-0 text-white" id="pdfPreviewModalLabel">Live PDF Preview - Employee Joining Document</h6>
+                        <small class="text-white-50">Instant preview with your currently entered form data (Pages 1 - 9)</small>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" onclick="printPdfPreviewFrame()">
+                        <i class="fas fa-download me-1"></i> Download / Print PDF
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-light rounded-pill px-3" onclick="openPdfPreviewNewTab()">
+                        <i class="fas fa-external-link-alt me-1"></i> New Tab
+                    </button>
+                    <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="modal" onclick="closePdfPreviewModal()"></button>
+                </div>
+            </div>
+            <div class="modal-body p-0 flex-grow-1" style="height: calc(100% - 60px); background: #cbd5e1;">
+                <iframe id="pdfPreviewFrame" name="pdfPreviewFrame" style="width: 100%; height: 100%; border: none; background: #cbd5e1;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openPdfPreviewModal() {
+    const form = document.getElementById('joiningForm');
+    if (!form) return;
+
+    // Build payload dictionary from form
+    const formData = new FormData(form);
+    const formObj = {};
+    for (let [k, v] of formData.entries()) {
+        formObj[k] = v;
+    }
+
+    // Capture drawn canvas signature if present
+    const sigCanvas = document.getElementById('signaturePad');
+    if (sigCanvas && typeof sigCanvas.toDataURL === 'function') {
+        try {
+            const sData = sigCanvas.toDataURL('image/png');
+            if (sData && sData.length > 500) {
+                formObj['signature_data'] = sData;
+            }
+        } catch(e) {}
+    }
+
+    formObj['is_preview'] = '1';
+    formObj['id'] = '<?php echo $app_id ?? 0; ?>';
+    formObj['token'] = '<?php echo $application["token"] ?? ""; ?>';
+
+    // If running in iframe inside parent dashboard, request parent to display in its viewport
+    if (window.parent && window.parent !== window) {
+        try {
+            window.parent.postMessage({
+                type: 'vk_open_pdf_preview',
+                formData: formObj
+            }, '*');
+            return;
+        } catch(e) {}
+    }
+
+    renderLocalPdfPreview(formObj);
+}
+
+let currentPdfPreviewHtml = '';
+let currentPdfPreviewPayload = null;
+
+function renderLocalPdfPreview(formObj) {
+    const modalEl = document.getElementById('pdfPreviewModal');
+    if (!modalEl) return;
+
+    currentPdfPreviewPayload = formObj;
+
+    // Show modal immediately
+    if (window.bootstrap && window.bootstrap.Modal) {
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+    } else {
+        modalEl.style.display = 'block';
+        modalEl.classList.add('show');
+    }
+
+    const frame = document.getElementById('pdfPreviewFrame');
+    if (frame) {
+        // Sleek loading animation inside iframe so it is never blank
+        frame.srcdoc = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style>
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 100vh;
+                        background: #f1f5f9;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                        color: #334155;
+                    }
+                    .loader-card {
+                        background: #ffffff;
+                        padding: 32px 48px;
+                        border-radius: 16px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        text-align: center;
+                        max-width: 420px;
+                    }
+                    .spinner {
+                        width: 48px;
+                        height: 48px;
+                        border: 4px solid #e2e8f0;
+                        border-top-color: #dc2626;
+                        border-radius: 50%;
+                        animation: spin 0.8s linear infinite;
+                        margin-bottom: 20px;
+                    }
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+            </head>
+            <body>
+                <div class="loader-card">
+                    <div class="spinner"></div>
+                    <div style="font-weight: 700; font-size: 17px; color: #0f172a;">Generating Live PDF Preview...</div>
+                    <div style="font-size: 13px; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                        Assembling all 9 bilingual pages with your current form data.
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+    }
+
+    // Prepare FormData
+    const fd = new FormData();
+    for (let k in formObj) {
+        if (formObj.hasOwnProperty(k) && formObj[k] !== undefined && formObj[k] !== null) {
+            fd.append(k, formObj[k]);
+        }
+    }
+
+    const endpoint = window.location.origin + '/dashboard/management/joining_pdf.php';
+
+    fetch(endpoint, {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(res) {
+        if (!res.ok) {
+            throw new Error('Server returned HTTP ' + res.status);
+        }
+        return res.text();
+    })
+    .then(function(html) {
+        currentPdfPreviewHtml = html;
+        if (frame) {
+            frame.srcdoc = html;
+        }
+    })
+    .catch(function(err) {
+        console.error('PDF Preview Fetch Failed:', err);
+        if (frame) {
+            frame.srcdoc = `
+                <div style="padding: 40px; text-align: center; font-family: sans-serif; color: #dc2626;">
+                    <div style="font-size: 36px; margin-bottom: 12px;"><i class="fas fa-exclamation-triangle"></i></div>
+                    <h3 style="margin-bottom: 8px;">Unable to load PDF preview</h3>
+                    <p style="color: #64748b; font-size: 14px;">${err.message}</p>
+                </div>
+            `;
+        }
+    });
+}
+
+function openPdfPreviewNewTab() {
+    if (currentPdfPreviewHtml) {
+        const blob = new Blob([currentPdfPreviewHtml], { type: 'text/html; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (win) return;
+    }
+    // Fallback: POST via hidden form targeting _blank
+    let prevForm = document.getElementById('hiddenPdfPreviewForm');
+    if (!prevForm) {
+        prevForm = document.createElement('form');
+        prevForm.id = 'hiddenPdfPreviewForm';
+        prevForm.method = 'POST';
+        prevForm.action = window.location.origin + '/dashboard/management/joining_pdf.php';
+        prevForm.target = '_blank';
+        prevForm.style.display = 'none';
+        document.body.appendChild(prevForm);
+    }
+    prevForm.innerHTML = '';
+    if (currentPdfPreviewPayload) {
+        for (let k in currentPdfPreviewPayload) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = k;
+            inp.value = currentPdfPreviewPayload[k];
+            prevForm.appendChild(inp);
+        }
+    }
+    prevForm.submit();
+}
+
+function printPdfPreviewFrame() {
+    const frame = document.getElementById('pdfPreviewFrame');
+
+    // 1. Tell iframe to print itself via postMessage
+    if (frame && frame.contentWindow) {
+        try {
+            frame.contentWindow.postMessage({ type: 'vk_trigger_print' }, '*');
+        } catch(e) {}
+    }
+
+    // 2. Open printable window with the PDF content and auto-trigger print dialog
+    if (currentPdfPreviewHtml) {
+        const printWin = window.open('', '_blank');
+        if (printWin) {
+            printWin.document.open();
+            let htmlWithPrint = currentPdfPreviewHtml;
+            if (htmlWithPrint.indexOf('auto_print') === -1) {
+                htmlWithPrint = htmlWithPrint.replace('</body>', '<script>window.addEventListener("load", function(){ setTimeout(function(){ window.focus(); window.print(); }, 400); });<\/script></body>');
+            }
+            printWin.document.write(htmlWithPrint);
+            printWin.document.close();
+            return;
+        }
+    }
+
+    // 3. Fallback: Form submit to new tab with auto_print=1
+    let prevForm = document.getElementById('hiddenPdfPrintForm');
+    if (!prevForm) {
+        prevForm = document.createElement('form');
+        prevForm.id = 'hiddenPdfPrintForm';
+        prevForm.method = 'POST';
+        prevForm.action = window.location.origin + '/dashboard/management/joining_pdf.php';
+        prevForm.target = '_blank';
+        prevForm.style.display = 'none';
+        document.body.appendChild(prevForm);
+    }
+    prevForm.innerHTML = '';
+    if (currentPdfPreviewPayload) {
+        for (let k in currentPdfPreviewPayload) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = k;
+            inp.value = currentPdfPreviewPayload[k];
+            prevForm.appendChild(inp);
+        }
+    }
+    const autoInp = document.createElement('input');
+    autoInp.type = 'hidden';
+    autoInp.name = 'auto_print';
+    autoInp.value = '1';
+    prevForm.appendChild(autoInp);
+    prevForm.submit();
+}
+
+function closePdfPreviewModal() {
+    const modalEl = document.getElementById('pdfPreviewModal');
+    if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+    } else if (modalEl) {
+        modalEl.style.display = 'none';
+        modalEl.classList.remove('show');
+        const bdrop = document.querySelector('.modal-backdrop');
+        if (bdrop) bdrop.remove();
+    }
+}
+</script>
 
 <script src="assets/js/form_autofill.js"></script>
 </body>
